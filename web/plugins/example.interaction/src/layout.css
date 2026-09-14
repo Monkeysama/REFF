@@ -1,5 +1,0 @@
-html, body, #app { width: 100%; height: 100%; margin: 0; }
-.plugin-page { width: 100%; min-height: 100%; padding: 0; box-sizing: border-box; }
-.counter-card { width: 100%; }
-.counter { min-height: 180px; display: flex; align-items: center; justify-content: center; gap: 28px; }
-.counter output { min-width: 100px; color: var(--reff-text); font-size: 52px; text-align: center; font-variant-numeric: tabular-nums; }

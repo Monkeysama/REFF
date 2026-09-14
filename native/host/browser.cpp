@@ -345,7 +345,7 @@ void BrowserClient::OnLoadEnd(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, 
             const previousPage = sessionStorage.getItem('reff-smoke-page');
             if (previousPage === identity.pageId) throw new Error('document identity reused after reload');
             await query({method: 'ui.subscribe', params: {
-                eventName: 'example.counter.changed', subscriptionId: 'smoke-page-probe'
+                eventName: 'example.vue.refreshed', subscriptionId: 'smoke-page-probe'
             }});
             const reloads = Number(sessionStorage.getItem('reff-smoke-reloads') || 0);
             if (reloads < window.reffSmokeReloadTarget) {
@@ -357,9 +357,9 @@ void BrowserClient::OnLoadEnd(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, 
             await query({method: 'ui.unsubscribe', params: {subscriptionId: 'smoke-page-probe'}});
             sessionStorage.removeItem('reff-smoke-page');
             sessionStorage.removeItem('reff-smoke-reloads');
-            const before = await query({method: 'example.counter.get', params: {}});
-            const after = await query({method: 'example.counter.increment', params: {amount: 1}});
-            window.reffSelfTest = {passed: after.count === before.count + 1};
+            const before = await query({method: 'example.vue.get', params: {}});
+            const after = await query({method: 'example.vue.refresh', params: {}});
+            window.reffSelfTest = {passed: after.refreshCount === before.refreshCount + 1};
         })().catch(error => window.cefQuery({
             request: JSON.stringify({method: 'test.finished', params: {passed: false, identityError: String(error.message || JSON.stringify(error))}}),
             onSuccess: () => {}, onFailure: () => {}

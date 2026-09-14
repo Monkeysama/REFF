@@ -88,9 +88,9 @@ function Assert-ReleaseArchive([string]$Archive, [bool]$Examples) {
     $required = if ($Examples) {
         @(
             'reframework/autorun/REFF.examples.lua',
-            'reframework/reff/plugins/example.interaction/manifest.json',
-            'reframework/reff/plugins/example.components/manifest.json',
-            'reframework/reff/plugins/example.status/manifest.json'
+            'reframework/reff/plugins/example.vue/manifest.json',
+            'reframework/reff/plugins/example.react/manifest.json',
+            'reframework/reff/plugins/example.html/manifest.json'
         )
     } else { @('reframework/plugins/REFF.dll') }
     foreach ($path in $required) {

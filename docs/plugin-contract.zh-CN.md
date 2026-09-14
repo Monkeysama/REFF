@@ -1,8 +1,8 @@
 # REFF 插件与桥接契约
 
-版本：0.6 · 日期：2026-09-13 · 状态：Lua 注册/事件、Shell 身份和独立插件页面资源/权限首轮实现；Component/Isolated Page 双模式已确定并进入实现。本文含目标契约，不能把所有草案视为已实现 API。
+版本：0.6 · 日期：2026-09-15 · 状态：Lua 注册/事件、Shell 身份和独立插件页面资源/权限已实现；Component/Isolated Page 双模式由契约保留。本文含目标契约，不能把所有草案视为已实现 API。
 
-实现边界：网页只提交 method/params，宿主按 `reff://plugin/<id>/<entry>` 绑定 pluginId/pageId；插件资源只能读取对应 manifest 根目录，方法/事件由 manifest 与 Lua 注册表共同授权。Shell 只负责插件发现、导航、通用 Schema 和隔离页承载，不持有第三方插件业务状态。`ready()/is_ui_ready()` 用于页面与宿主的就绪握手，SDK 对重置和断线提供明确错误语义。示例包用于演示 Component、Isolated Page、IME、事件和公共资源用法，正式 Runtime 不包含示例业务。
+实现边界：网页只提交 method/params，宿主按 `reff://plugin/<id>/<entry>` 绑定 pluginId/pageId；插件资源只能读取对应 manifest 根目录，方法/事件由 manifest 与 Lua 注册表共同授权。Shell 只负责插件发现、导航、通用 Schema 和隔离页承载，不持有第三方插件业务状态。`ready()/is_ui_ready()` 用于页面与宿主的就绪握手，SDK 对重置和断线提供明确错误语义。示例包提供 Vue 3、React、原生 HTML 三个功能相同的 Isolated Page，用于演示 IME、事件和公共资源用法，正式 Runtime 不包含示例业务。
 
 ## 1. 接入模型
 
@@ -17,21 +17,22 @@
 ```json
 {
   "manifestVersion": 1,
-  "id": "example.settings",
-  "name": "Example Settings",
+  "id": "example.vue",
+  "name": "Vue 3 接入示例",
   "version": "0.1.0",
   "reffApi": ">=0.1.0 <0.2.0",
   "games": ["MHWILDS"],
   "ui": {
     "kind": "page",
-    "entry": "ui/index.html"
+    "mode": "isolated-page",
+    "entry": "ui/dist/index.html"
   },
   "methods": [
-    "example.settings.get",
-    "example.settings.set"
+    "example.vue.get",
+    "example.vue.refresh"
   ],
-  "events": ["example.settings.changed"],
-  "fallback": "plugin-managed"
+  "events": ["example.vue.refreshed"],
+  "fallback": "none"
 }
 ```
 
@@ -75,11 +76,11 @@ REFF Shell 保持常驻，左侧显示插件列表，右侧显示当前页面。
 ```ts
 await reff.ready();
 
-const state = await reff.call("example.settings.get", {});
-await reff.call("example.settings.set", { enabled: true });
+const state = await reff.call("example.vue.get", {});
+await reff.call("example.vue.refresh", {});
 
 const subscription = await reff.subscribe(
-  "example.settings.changed",
+  "example.vue.refreshed",
   (state) => renderState(state)
 );
 
@@ -107,9 +108,9 @@ API 中的 `renderState` 是插件自己的展示函数。正式包提供类型�
   "sessionId": "opaque-session-id",
   "luaEpoch": 3,
   "pageId": "opaque-page-instance",
-  "pluginId": "example.settings",
+  "pluginId": "example.vue",
   "id": "42",
-  "method": "example.settings.set",
+  "method": "example.vue.refresh",
   "params": { "enabled": true },
   "timeoutMs": 5000
 }

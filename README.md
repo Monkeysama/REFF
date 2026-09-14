@@ -1,6 +1,4 @@
-# REFramework Frontend（REFF）
-
-**Web UI Runtime for REFramework**
+# REFF
 
 REFF 是运行在 REFramework 之上的游戏内 Web UI 框架。它为 REFramework 插件提供现代化的Web UI界面。
 
@@ -11,7 +9,7 @@ REFF 是 REFramework 的扩展，不替换或修改 REFramework 原有菜单和�
 - 游戏内 CEF Web UI，不打开系统浏览器窗口，也不访问互联网。
 - 支持 Component/schema 和 Isolated Page 两种插件界面。
 - Lua 插件注册、方法调用、事件发布与订阅。
-- Vue 3、Element Plus、共享主题和公共 UI 资源。
+- Vue 3、React、原生 HTML/JavaScript 示例接入，以及 Vue/Element Plus 共享主题和公共 UI 资源。
 - 设置页：主题、颜色、透明度、圆角、网页表面模糊、文字大小、输入穿透和窗口记忆。
 - 中/英界面切换，插件名称和翻译资源可跟随 REFF 语言设置。
 - 配置保存在游戏目录，脚本重载和重新启动游戏后仍然保留。
@@ -30,7 +28,7 @@ REFF 是 REFramework 的扩展，不替换或修改 REFramework 原有菜单和�
 4. 保留已有的 `reframework/data/REFF/settings.json`。
 5. 启动游戏，关闭 REFramework 原生菜单后按 **F8** 打开 REFF，按 **F8** 或 **Esc** 关闭。
 
-开发和回归测试还可以安装 [示例插件包](artifacts/REFF-0.1.0-preview6-examples.zip)。示例包需要在 Runtime 包之后合并安装，包含交互、设置、状态和公共组件示例，不建议用于正式分发。
+开发和回归测试还可以安装 Release 中的示例插件包。示例包需要在 Runtime 包之后合并安装，包含 Vue 3、React 和原生 HTML 三种等功能接入示例，不建议用于正式分发。
 
 ## 文件位置
 
@@ -54,8 +52,8 @@ reframework/data/REFF/log/          REFF 专用诊断日志
 {
   "name": "Interaction Example",
   "localizedName": {
-    "zh-CN": "交互示例",
-    "en-US": "Interaction Example"
+    "zh-CN": "Vue 3 接入示例",
+    "en-US": "Vue 3 Integration Example"
   }
 }
 ```

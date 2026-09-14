@@ -1,4 +1,0 @@
-import {defineConfig} from 'vite'; import {fileURLToPath,URL} from 'node:url'; import vue from '../../shell/node_modules/@vitejs/plugin-vue/dist/index.mjs';
-const shell=new URL('../../shell/',import.meta.url); const root=fileURLToPath(new URL('./',import.meta.url)); const shared='reff://shell/shared/reff-ui.mjs';
-// 插件产物保留公共模块引用；运行时只从 REFF Shell 的受限 shared 路径加载依赖。
-export default defineConfig({root,plugins:[vue()],base:'./',resolve:{alias:{vue:fileURLToPath(new URL('node_modules/vue',shell)),'@reff/ui':fileURLToPath(new URL('../shared/src/index.ts',shell)),'@reff-sdk':fileURLToPath(new URL('../sdk',shell))}},build:{target:'es2020',outDir:'ui/dist',emptyOutDir:true,rollupOptions:{input:fileURLToPath(new URL('./ui-vue.html',import.meta.url)),external:['vue','@reff/ui'],output:{paths:{vue:shared,'@reff/ui':shared}}}}});

@@ -116,8 +116,8 @@ rollupOptions: {
 }
 ```
 
-开发期 `@reff/ui` 类型/源码指向 `web/shared/src/index.ts`，参考状态示例的 Vite 配置与 `web/plugins/tsconfig.json`。当前公共组件导出清单以该文件为准，不支持随意导入 Element Plus 内部路径。原生 HTML/其他框架仍可使用无框架 SDK，不强制采用此公共模块。
+开发期 `@reff/ui` 类型/源码指向 `web/shared/src/index.ts`，参考 `example.vue` 的 Vite 配置与 `web/plugins/tsconfig.json`。当前公共组件导出清单以该文件为准，不支持随意导入 Element Plus 内部路径。React 与原生 HTML 示例使用无框架 SDK，不强制采用此公共模块。
 
-在仓库根运行 `tools/build-web.ps1` 生成正式公共模块与 Shell；开发示例使用 `tools/build-web.ps1 -IncludeExamples`。该脚本同时检查类型、模块引用和公共 CSS 引用。`tools/stage.ps1` 默认不打包示例，开发回归需显式传入 `-IncludeExamples`。设置和计数器示例使用 Component/schema，交互、公共组件和插件状态使用 Isolated Page。
+在仓库根运行 `tools/build-web.ps1` 生成正式公共模块与 Shell；开发示例使用 `tools/build-web.ps1 -IncludeExamples`。该脚本同时检查类型、模块引用和公共 CSS 引用。`tools/stage.ps1` 默认不打包示例，开发回归需显式传入 `-IncludeExamples`。当前示例包提供三个功能相同的 `isolated-page` 页面：`example.vue` 使用 Vue 3，`example.react` 使用 React，`example.html` 使用原生 HTML/JavaScript。三者均显示当前游戏、REFramework 版本、REFF 运行时间和刷新次数；页面打开后每 500ms 自动读取最新快照。在 Monster Hunter Wilds 中额外显示本地玩家血量，并可调用各自命名空间的方法调整血量百分比。
 
 公共文件可复用，但 iframe 中的状态、Vue 应用和组件实例各自独立。公共 CSS 包含 REFF 暗色变量与基础盒模型，插件可以在随后加载的 CSS 中覆盖自己的布局。公共资源 URL 需要与 Core 版本匹配；插件应在发布包中固定依赖版本并随包提供许可证信息。

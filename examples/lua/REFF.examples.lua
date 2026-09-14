@@ -1,36 +1,19 @@
 -- REFF 可选示例插件：只修改脚本会话内存，不读取或写入玩家存档。
 local native = rawget(_G, "reff_native")
 
--- 设置示例自行提供旧 ImGui 回退；REFF 核心不感知插件的回退界面。
-local function install_settings_fallback()
-    local window_open = true
-    local enabled = true
-    re.on_draw_ui(function()
-        if type(imgui) ~= "table" or not window_open then return end
-        if imgui.begin_window("REFF 设置示例（回退）", window_open) then
-            imgui.text("REFF 不可用，当前使用 REFramework 原生界面")
-            local changed
-            changed, enabled = imgui.checkbox("启用", enabled)
-            if imgui.button("重置设置") then enabled = true end
-            imgui.end_window()
-        end
-    end)
-end
-
 if native == nil then
-    install_settings_fallback()
+    -- 没有 REFF 原生桥接时不注册示例服务，避免与 REFramework 原生 UI 产生竞争。
     return
 end
 
 local SDK = require("reff.sdk")
-local interaction = { count = 0, revision = 0 }
-local counter = { count = 0, revision = 0 }
-local settings = { enabled = true, intensity = 50, note = "", revision = 0 }
+local refresh_count = 0
 local started_at = os.clock()
-local interaction_handle
-local counter_handle
-local settings_handle
-local status_handle
+local vue_handle
+local react_handle
+local html_handle
+local sdk_api = rawget(_G, "sdk")
+local hp_reflection_cache = {}
 
 -- 原生事件出口只接收序列化 JSON；SDK 在调用前再次校验插件和事件所有权。
 local sdk_native = {
@@ -40,74 +23,133 @@ local sdk_native = {
     end,
 }
 
--- 交互示例提供独立的增减计数器，用于验证隔离页请求、事件与连续点击。
-local function get_interaction()
-    return { count = interaction.count, revision = interaction.revision }
-end
-local function change_interaction(params)
-    assert(type(params) == "table", "参数必须是对象")
-    local amount = params.amount or 1
-    assert(type(amount) == "number" and amount == math.floor(amount) and math.abs(amount) <= 10,
-        "增量必须是 -10 到 10 的整数")
-    interaction.count = interaction.count + amount
-    interaction.revision = interaction.revision + 1
-    interaction_handle.emit("example.interaction.changed", get_interaction())
-    return get_interaction()
+-- 获取 Wilds 本地玩家角色；只读 PlayerManager 主玩家，不扫描或修改其他角色。
+local function get_local_player_character()
+    if not sdk_api or not sdk_api.get_managed_singleton then return nil end
+    local ok, manager = pcall(sdk_api.get_managed_singleton, "app.PlayerManager")
+    if not ok or not manager then return nil end
+    local player_ok, player = pcall(function() return manager:call("getMasterPlayer") end)
+    if not player_ok or not player then return nil end
+    local character_ok, character = pcall(function() return player:call("get_Character") end)
+    if character_ok and character then return character end
+    return nil
 end
 
--- Schema 计数器返回当前值和修订号，Shell 只按 manifest 声明的字段合并快照。
-local function get_counter()
-    return { count = counter.count, revision = counter.revision }
-end
-local function increment_counter(params)
-    assert(type(params) == "table", "参数必须是对象")
-    local amount = params.amount or 1
-    assert(type(amount) == "number" and amount == math.floor(amount) and math.abs(amount) <= 10,
-        "步进必须是 -10 到 10 的整数")
-    counter.count = counter.count + amount
-    counter.revision = counter.revision + 1
-    counter_handle.emit("example.counter.changed", get_counter())
-    return get_counter()
-end
-
--- 设置示例再次校验字段类型和范围，前端校验不作为游戏侧信任依据。
-local function get_settings()
-    return { enabled = settings.enabled, intensity = settings.intensity, note = settings.note, revision = settings.revision }
-end
-local function set_settings(params)
-    assert(type(params) == "table", "参数必须是对象")
-    if params.enabled ~= nil then assert(type(params.enabled) == "boolean", "enabled 必须是布尔值"); settings.enabled = params.enabled end
-    if params.intensity ~= nil then
-        assert(type(params.intensity) == "number" and params.intensity == math.floor(params.intensity) and
-            params.intensity >= 0 and params.intensity <= 100, "intensity 必须是 0 到 100 的整数")
-        settings.intensity = params.intensity
+-- 按差分管理器兼容顺序解析血量属性，并缓存类型级反射结果。
+local function get_hp_reflection(character)
+    if not character then return nil end
+    local type_ok, type_def = pcall(function() return character:get_type_definition() end)
+    if not type_ok or not type_def then return nil end
+    local key = tostring(type_def)
+    if hp_reflection_cache[key] ~= nil then return hp_reflection_cache[key] or nil end
+    local function direct(get_name, max_name, set_name)
+        local get_method = type_def:get_method(get_name)
+        local max_method = type_def:get_method(max_name)
+        if not get_method or not max_method then return nil end
+        return { get = get_method, get_max = max_method, set = type_def:get_method(set_name) }
     end
-    if params.note ~= nil then assert(type(params.note) == "string" and #params.note <= 64, "note 长度不能超过 64 字节"); settings.note = params.note end
-    settings.revision = settings.revision + 1
-    settings_handle.emit("example.settings.changed", get_settings())
-    return get_settings()
+    local reflection = direct("get_HitPoint", "get_MaxHitPoint", "set_HitPoint")
+        or direct("get_Health", "get_MaxHealth", "set_Health")
+    if not reflection then
+        local hunter_method = type_def:get_method("get_HunterHealth")
+        local health_type = hunter_method and hunter_method:get_return_type()
+        local manager_method = health_type and health_type:get_method("get_HealthMgr")
+        local manager_type = manager_method and manager_method:get_return_type()
+        local get_method = manager_type and manager_type:get_method("get_Health")
+        local max_method = manager_type and manager_type:get_method("get_MaxHealth")
+        local set_method = manager_type and manager_type:get_method("set_Health")
+        if hunter_method and manager_method and get_method and max_method then
+            reflection = { hunter = hunter_method, manager = manager_method, get = get_method, get_max = max_method, set = set_method }
+        end
+    end
+    hp_reflection_cache[key] = reflection or false
+    return reflection
 end
 
--- 状态示例只返回低频摘要，不暴露游戏对象、地址或用户数据。
-local function get_status()
-    return { connected = true, uptime = math.max(0, math.floor(os.clock() - started_at)) }
+-- 调用已解析的血量反射；失败时返回 nil，页面显示为暂不可用。
+local function read_player_hp()
+    local character = get_local_player_character()
+    local reflection = get_hp_reflection(character)
+    if not character or not reflection then return nil end
+    local ok, current, maximum = pcall(function()
+        if reflection.hunter then
+            local hunter_health = reflection.hunter:call(character)
+            local health_manager = reflection.manager:call(hunter_health)
+            return reflection.get:call(health_manager), reflection.get_max:call(health_manager)
+        end
+        return reflection.get:call(character), reflection.get_max:call(character)
+    end)
+    if not ok or type(current) ~= "number" or type(maximum) ~= "number" or maximum <= 0 then return nil end
+    return { current = current, max = maximum, percent = math.max(0, math.min(100, current / maximum * 100)), adjustable = reflection.set ~= nil, character = character, reflection = reflection }
 end
 
-interaction_handle = SDK.register("example.interaction", {
-    methods = { ["example.interaction.get"] = get_interaction, ["example.interaction.change"] = change_interaction },
-    events = { "example.interaction.changed" },
-}, sdk_native)
-counter_handle = SDK.register("example.counter", {
-    methods = { ["example.counter.get"] = get_counter, ["example.counter.increment"] = increment_counter },
-    events = { "example.counter.changed" },
-}, sdk_native)
-settings_handle = SDK.register("example.settings", {
-    methods = { ["example.settings.get"] = get_settings, ["example.settings.set"] = set_settings },
-    events = { "example.settings.changed" },
-}, sdk_native)
-status_handle = SDK.register("example.status", {
-    methods = { ["example.status.get"] = get_status },
-    events = {},
-}, sdk_native)
+-- 设置本地玩家血量百分比；仅允许 Wilds 且限制在 0 到 100 之间。
+local function set_player_hp_percent(percent)
+    local game_name = reframework:get_game_name()
+    local normalized_game = string.lower(tostring(game_name or "")):gsub("[%s_%-]", "")
+    if normalized_game ~= "mhwilds" and not normalized_game:find("monsterhunterwilds", 1, true) then
+        return false, "当前游戏不是 Monster Hunter Wilds"
+    end
+    local numeric = tonumber(percent)
+    if not numeric then return false, "血量百分比必须是数字" end
+    numeric = math.max(0, math.min(100, numeric))
+    local state = read_player_hp()
+    if not state or not state.adjustable then return false, "当前游戏或角色不支持调整血量" end
+    local ok = pcall(function()
+        local target = state.max * numeric / 100
+        if state.reflection.hunter then
+            local hunter_health = state.reflection.hunter:call(state.character)
+            local health_manager = state.reflection.manager:call(hunter_health)
+            state.reflection.set:call(health_manager, target)
+        else
+            state.reflection.set:call(state.character, target)
+        end
+    end)
+    if not ok then return false, "调整玩家血量失败" end
+    return true
+end
+
+-- 三个前端示例共享同一份安全摘要，演示调用 REFramework 与 REFF 运行时信息。
+local function get_snapshot()
+    local game_name = reframework:get_game_name()
+    local hp = nil
+    local normalized_game = string.lower(tostring(game_name or "")):gsub("[%s_%-]", "")
+    if normalized_game == "mhwilds" or normalized_game:find("monsterhunterwilds", 1, true) then
+        local state = read_player_hp()
+        if state then hp = { available = true, current = state.current, max = state.max, percent = state.percent, adjustable = state.adjustable } end
+    end
+    return {
+        gameName = game_name,
+        reframeworkVersion = reframework:get_version_string(),
+        hp = hp or { available = false, adjustable = false },
+        uptimeSeconds = math.max(0, math.floor(os.clock() - started_at)),
+        refreshCount = refresh_count,
+    }
+end
+local function make_refresh(handle, event_name)
+    return function()
+        refresh_count = refresh_count + 1
+        local value = get_snapshot()
+        if handle and event_name then handle.emit(event_name, value) end
+        return value
+    end
+end
+
+local vue_refresh = function()
+    refresh_count = refresh_count + 1
+    local value = get_snapshot()
+    if vue_handle then vue_handle.emit("example.vue.refreshed", value) end
+    return value
+end
+local function make_set_hp()
+    return function(params)
+        local ok, error_message = set_player_hp_percent(type(params) == "table" and params.percent or nil)
+        if not ok then error(error_message) end
+        return get_snapshot()
+    end
+end
+vue_handle = SDK.register("example.vue", { methods = { ["example.vue.get"] = get_snapshot, ["example.vue.refresh"] = vue_refresh, ["example.vue.set-hp"] = make_set_hp() }, events = { "example.vue.refreshed" }, }, sdk_native)
+react_handle = SDK.register("example.react", { methods = { ["example.react.get"] = get_snapshot, ["example.react.refresh"] = make_refresh(), ["example.react.set-hp"] = make_set_hp() }, events = {} }, sdk_native)
+html_handle = SDK.register("example.html", { methods = { ["example.html.get"] = get_snapshot, ["example.html.refresh"] = make_refresh(), ["example.html.set-hp"] = make_set_hp() }, events = {} }, sdk_native)
 
 log.info("REFF: 可选示例插件已注册")

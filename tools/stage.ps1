@@ -58,7 +58,7 @@ if ($IncludeExamples) {
     # 示例脚本和页面只进入显式开发构建；正式 staging 不包含测试业务或其 manifest。
     Copy-Item -LiteralPath (Join-Path $repoRoot 'examples\lua\REFF.examples.lua') -Destination (Join-Path $stageRoot 'autorun\REFF.examples.lua')
     $pluginRoot = Join-Path $repoRoot 'web\plugins'
-    foreach ($pluginDirectory in Get-ChildItem -LiteralPath $pluginRoot -Directory -Filter 'example.*') {
+    foreach ($pluginDirectory in Get-ChildItem -LiteralPath $pluginRoot -Directory | Where-Object { $_.Name -in @('example.vue', 'example.react', 'example.html') }) {
         $manifestPath = Join-Path $pluginDirectory.FullName 'manifest.json'
         if (-not (Test-Path -LiteralPath $manifestPath)) { continue }
         # Windows PowerShell 5.1 会把无 BOM 的 UTF-8 JSON 按系统 ANSI 解码，必须显式指定 UTF-8。

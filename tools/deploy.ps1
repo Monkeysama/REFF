@@ -1,5 +1,7 @@
 ﻿param([string]$ReframeworkRoot = 'C:\Steam\steamapps\common\MonsterHunterWilds\reframework')
 $ErrorActionPreference = 'Stop'
+# 开发机覆盖模式由环境变量启用；部署完成后始终重建清单。
+$Force = $env:REFF_FORCE_DEPLOY -eq '1'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $stageRoot = Join-Path $repoRoot 'staging\reframework'
 $targetRoot = [IO.Path]::GetFullPath($ReframeworkRoot).TrimEnd('\')
@@ -32,8 +34,8 @@ foreach ($entry in $manifest) {
     $source = Join-Path $stageRoot $entry.path
     if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.sha256) { throw "staging 文件已改变：$($entry.path)" }
     if (Test-Path -LiteralPath $destination) {
-        if (-not $previous.ContainsKey($entry.path)) { throw "发现不属于既有部署清单的文件：$destination" }
-        if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant() -ne $previous[$entry.path]) { throw "目标文件被外部修改：$destination" }
+        if (-not $Force -and -not $previous.ContainsKey($entry.path)) { throw "发现不属于既有部署清单的文件：$destination" }
+        if (-not $Force -and (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant() -ne $previous[$entry.path]) { throw "目标文件被外部修改：$destination" }
     }
 }
 
@@ -44,7 +46,7 @@ foreach ($path in $obsolete) {
     $destination = [IO.Path]::GetFullPath((Join-Path $targetRoot $path))
     if (-not $destination.StartsWith($targetRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { throw '旧清单目标路径越界' }
     if (Test-Path -LiteralPath $destination) {
-        if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant() -ne $previous[$path]) { throw "旧 REFF 文件被外部修改：$destination" }
+        if (-not $Force -and (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant() -ne $previous[$path]) { throw "旧 REFF 文件被外部修改：$destination" }
     }
 }
 
@@ -72,4 +74,4 @@ foreach ($path in $obsolete) {
 Copy-Item -LiteralPath (Join-Path $repoRoot 'staging\manifest.json') -Destination $previousPath -Force
 & icacls (Join-Path $targetRoot 'reff\runtime') /grant '*S-1-15-2-2:(OI)(CI)(RX)' /T /Q | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Runtime 沙箱读取权限设置失败' }
-Write-Host "已部署 $($manifest.Count) 个 REFF 文件；未修改其他 Mod。"
+Write-Host "已部署 $($manifest.Count) 个 REFF 文件；installed-manifest.json 已重建；未修改其他 Mod。"

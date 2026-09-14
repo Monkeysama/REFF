@@ -13,7 +13,7 @@ if (-not $SkipTypeCheck) {
     if ($LASTEXITCODE -ne 0) { throw 'Shell Vue 类型检查失败' }
     if ($IncludeExamples) {
         & $vueTsc --noEmit --project (Join-Path $repoRoot 'web\plugins\tsconfig.json')
-        if ($LASTEXITCODE -ne 0) { throw '示例插件 Vue 类型检查失败' }
+        if ($LASTEXITCODE -ne 0) { throw '示例插件类型检查失败' }
     }
 }
 & $vite build --config (Join-Path $repoRoot 'web\shared\vite.config.ts')
@@ -27,7 +27,7 @@ try {
 }
 
 if ($IncludeExamples) {
-    foreach ($name in @('example.interaction', 'example.components', 'example.status')) {
+    foreach ($name in @('example.vue', 'example.react', 'example.html')) {
         & $vite build --config (Join-Path $repoRoot "web\plugins\$name\vite.config.ts")
         if ($LASTEXITCODE -ne 0) { throw "示例插件构建失败：$name" }
     }
@@ -40,7 +40,7 @@ $sharedStyle = Join-Path $shellRoot 'dist\shared\reff-ui.css'
 if (-not (Test-Path -LiteralPath $sharedModule) -or -not (Test-Path -LiteralPath $sharedStyle)) { throw 'Shell 产物缺少公共 UI 资源' }
 $consumerRoots = @((Join-Path $shellRoot 'dist\assets'))
 if ($IncludeExamples) {
-    $consumerRoots += @('example.interaction', 'example.components', 'example.status') | ForEach-Object {
+    $consumerRoots += @('example.vue', 'example.react', 'example.html') | ForEach-Object {
         Join-Path $repoRoot "web\plugins\$_\ui\dist\assets"
     }
 }
@@ -48,13 +48,15 @@ foreach ($consumerRoot in $consumerRoots) {
     $scripts = @(Get-ChildItem -LiteralPath $consumerRoot -Filter '*.js' -File)
     if ($scripts.Count -ne 1) { throw "页面业务脚本数量异常：$consumerRoot" }
     $content = Get-Content -LiteralPath $scripts[0].FullName -Raw
-    if (-not $content.Contains($sharedUrl)) { throw "页面未引用公共 UI 模块：$($scripts[0].FullName)" }
+    # 资源目录固定为 web/plugins/<插件>/ui/dist/assets，向上三级才是插件目录。
+    $pluginName = Split-Path (Split-Path (Split-Path $consumerRoot -Parent) -Parent) -Leaf
+    if ($pluginName -eq 'example.vue' -and -not $content.Contains($sharedUrl)) { throw "Vue 页面未引用公共 UI 模块：$($scripts[0].FullName)" }
     if ($content.Contains('Element Plus v2.10.7')) { throw "页面重复打包了 Element Plus：$($scripts[0].FullName)" }
 }
 $entryDocuments = @((Join-Path $shellRoot 'dist\index.html'))
 if ($IncludeExamples) {
-    $entryDocuments += @('example.interaction', 'example.components', 'example.status') | ForEach-Object {
-        Join-Path $repoRoot "web\plugins\$_\ui\dist\ui-vue.html"
+    $entryDocuments += @('example.vue', 'example.react', 'example.html') | ForEach-Object {
+        Join-Path $repoRoot "web\plugins\$_\ui\dist\index.html"
     }
 }
 foreach ($entryDocument in $entryDocuments) {

@@ -4,16 +4,22 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "skipLibCheck": true,
+    "typeRoots": ["../shell/node_modules/@types"],
+    "types": ["react", "react-dom"],
     "baseUrl": ".",
     "paths": {
       "vue": ["../shell/node_modules/vue"],
+      "react": ["../shell/node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["../shell/node_modules/@types/react/jsx-runtime.d.ts"],
+      "react-dom": ["../shell/node_modules/@types/react-dom/index.d.ts"],
+      "react-dom/client": ["../shell/node_modules/@types/react-dom/client.d.ts"],
       "@reff/ui": ["../shared/src/index.ts"],
       "@reff-sdk/*": ["../sdk/*"],
       "element-plus": ["../shell/node_modules/element-plus"],
       "element-plus/*": ["../shell/node_modules/element-plus/*"]
     }
   },
-  "include": ["env.d.ts", "example.*/src/**/*.ts", "example.*/src/**/*.vue", "../sdk/**/*.ts", "../shared/src/**/*.ts"]
+  "include": ["env.d.ts", "example.*/src/**/*.ts", "example.*/src/**/*.tsx", "example.*/src/**/*.vue", "../sdk/**/*.ts", "../shared/src/**/*.ts"]
 }
