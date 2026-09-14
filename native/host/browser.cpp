@@ -144,7 +144,10 @@ std::optional<BrowserClient::PageRoute> BrowserClient::route_for_url(const std::
     const auto slash = rest.find('/');
     if (slash == std::string::npos) return std::nullopt;
     const auto plugin_id = rest.substr(0, slash);
-    const auto relative = rest.substr(slash + 1);
+    // 允许 Shell 为开发刷新附加查询参数；查询串和片段不能参与本地文件解析。
+    auto relative = rest.substr(slash + 1);
+    if (const auto query = relative.find_first_of("?#"); query != std::string::npos)
+        relative.resize(query);
     const auto* manifest = manifest_for_id(plugin_id);
     if (!manifest || !safe_resource_name(relative)) return std::nullopt;
     return PageRoute{false, manifest, relative};
@@ -405,6 +408,30 @@ bool BrowserClient::OnQuery(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> f
         }
         if (method == "ui.status") {
             callback->Success(Json{{"ready", ready_}, {"epoch", epoch_}}.dump()); return true;
+        }
+        // 受控开发接口：当前页面只能刷新自身，不能操作 Shell 或其他插件页面。
+        if (method == "ui.reload") {
+            if (page_.plugin_id.empty()) { callback->Failure(403, "FORBIDDEN"); return true; }
+            callback->Success("{}");
+            if (browser_) browser_->ReloadIgnoreCache();
+            return true;
+        }
+        if (method == "ui.dev.version") {
+            // Shell 可查询当前已选插件，隔离插件页只能查询自身，避免借接口枚举或刷新其他插件。
+            std::string requested_id = page_.plugin_id;
+            if (requested_id.empty()) {
+                const auto params = value.value("params", Json::object());
+                if (!params.is_object() || params.value("pluginId", std::string{}).empty()) {
+                    callback->Failure(400, "INVALID_ARGUMENT"); return true;
+                }
+                requested_id = params.value("pluginId", std::string{});
+            }
+            const auto* manifest = manifest_for_id(requested_id);
+            if (!manifest) { callback->Failure(403, "FORBIDDEN"); return true; }
+            std::error_code error;
+            const auto stamp = std::filesystem::last_write_time(manifest->root / L".reff-dev-version", error);
+            if (error) { callback->Failure(404, "DEV_MARKER_NOT_FOUND"); return true; }
+            callback->Success(Json{{"version", std::to_string(stamp.time_since_epoch().count())}}.dump()); return true;
         }
         if (method == "ui.plugins") {
             if (!page_.plugin_id.empty()) { callback->Failure(403, "FORBIDDEN"); return true; }

@@ -17,5 +17,8 @@ export interface ReffClient {
   dispose(): void;
 }
 
+/** 开发期热刷新轮询的清理函数。 */
+export type DevReloadController = () => void;
+
 /** 输入法焦点上报的清理函数；调用后不再监听 DOM 焦点变化。 */
 export type InputFocusReporter = () => void;

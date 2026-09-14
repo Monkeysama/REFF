@@ -89,6 +89,8 @@ await subscription.unsubscribe();
 
 `ready()` 只表示当前页面对应的后端注册和桥接已就绪。`call()` 返回 Promise；`subscribe()` 等待服务端确认订阅，返回可重复安全解除的句柄。页面销毁、会话断开和脚本重置时，SDK 自动停止旧订阅。
 
+开发期可使用 `installDevReload(client)` 轮询当前插件目录的开发版本标记；标记变化后 SDK 调用受控的 `ui.reload`，只重载当前插件页面。该接口不允许跨插件或重载 Shell，正式发布包不生成版本标记，因此不会产生轮询刷新。
+
 API 中的 `renderState` 是插件自己的展示函数。正式包提供类型声明与稳定错误类型，SDK 不依赖 Vue。SDK 的 mock transport 用于网页开发预览，不能当成游戏内验收。
 
 公共 Shell 使用 Vue 3 + Vite，并统一提供 Element Plus 组件层。插件 SDK 保持框架无关；插件可以使用 Shell 暴露的基础组件，也可以在自己的资源根目录使用原生 HTML/CSS 或其他前端框架。插件不得通过 CDN 或远程资源加载 Element Plus，也不应重复打包公共组件库。

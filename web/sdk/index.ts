@@ -1,4 +1,4 @@
-import { ReffError, ReffClient, ReffSubscription, ReffTransport, InputFocusReporter } from './types';
+import { ReffError, ReffClient, ReffSubscription, ReffTransport, InputFocusReporter, DevReloadController } from './types';
 export * from './types';
 
 // 生产环境使用 CEF cefQuery；每个请求只等待一次结果，关闭或重置后不自动重放写请求。
@@ -47,6 +47,24 @@ export function createReffClient(transport: ReffTransport): ReffClient {
   };
   window.addEventListener('pagehide', dispose, { once: true });
   return client;
+}
+
+/** 开发期轮询版本标记，构建成功后仅刷新当前插件页面。 */
+export function installDevReload(client: ReffClient, intervalMs = 700): DevReloadController {
+  let stopped = false;
+  let lastVersion = '';
+  let timer: number | undefined;
+  const poll = async () => {
+    if (stopped) return;
+    try {
+      const result = await client.call<{ version: string }>('ui.dev.version');
+      if (lastVersion && result.version !== lastVersion) { await client.call('ui.reload'); return; }
+      lastVersion = result.version;
+    } catch { /* 页面切换或正式运行时接口不可用，下一轮继续。 */ }
+    if (!stopped) timer = window.setTimeout(poll, intervalMs);
+  };
+  void poll();
+  return () => { stopped = true; if (timer !== undefined) window.clearTimeout(timer); };
 }
 
 // 创建 CEF 页面默认传输；不存在 cefQuery 时由调用者注入 mock transport。

@@ -28,7 +28,7 @@ pnpm run sync:vue
 pnpm run watch:vue
 ```
 
-也可使用 `watch:react` 或 `watch:html`。监视器会先构建同步一次，之后检测源码、公共 SDK/UI、入口文件、Vite 配置和 manifest 的保存并自动再次构建同步。构建失败会保留游戏目录的上一版资源；同步完成后需要手动重新打开插件页面，按 `Ctrl+C` 停止监视。该模式只覆盖当前插件目录，不会更新 REFF DLL 或 CEF。
+也可使用 `watch:react` 或 `watch:html`。监视器会先构建同步一次，之后检测源码、公共 SDK/UI、入口文件、Vite 配置和 manifest 的保存并自动再次构建同步。构建成功会更新开发版本标记，示例页通过 SDK 的 `installDevReload` 自动刷新当前 iframe；构建失败会保留上一版资源。按 `Ctrl+C` 停止监视。该模式只覆盖当前插件目录，不会更新 REFF DLL 或 CEF。
 
 构建结果位于各插件的 `ui/dist`。将对应插件目录复制到游戏的 `reframework/reff/plugins/` 后，重新打开 REFF 页面即可加载；修改 `manifest.json` 时需要重新启动 REFF 宿主或游戏。Lua 后端源码位于 `examples/lua/REFF.examples.lua`，可通过 REFramework 的 Reset Scripts 重载。
 

@@ -29,6 +29,7 @@ const ready = shallowRef(false);
 const plugins = shallowRef<PluginSummary[]>([]);
 const selectedPluginId = shallowRef<string | null>(settingsPluginId);
 const isolatedFrame = shallowRef<HTMLIFrameElement | null>(null);
+const isolatedReloadKey = shallowRef(0);
 const settings = shallowRef<ReffSettings>({
   schemaVersion: 1,
   language: 'zh-CN',
@@ -44,10 +45,12 @@ const schemaSubscriptions = new Map<string, ReffSubscription>();
 const isolatedSubscriptions = new Map<string, ReffSubscription>();
 let selfTestTimer: number | undefined;
 let lifecycleTimer: number | undefined;
+let devReloadTimer: number | undefined;
 let selfTestStarted = false;
 let lifecycleEpoch = -1;
 let lifecycleBusy = false;
 let inputFocusReporter: (() => void) | null = null;
+let devVersion = '';
 
 const activePlugin = computed(() => plugins.value.find(plugin => plugin.id === selectedPluginId.value) || null);
 // 根据全局语言选择插件名称，并在缺少翻译时按中英及首个值回退。
@@ -58,12 +61,32 @@ function pluginName(plugin: PluginSummary | null | undefined): string {
 const settingsActive = computed(() => selectedPluginId.value === settingsPluginId);
 const selectedSchemaPlugin = computed(() => activePlugin.value?.mode === 'component' && activePlugin.value.schema ? activePlugin.value : null);
 const isolatedPlugin = computed(() => activePlugin.value?.mode === 'isolated-page' ? activePlugin.value : null);
+// 为隔离插件刷新生成新的资源 URL；参数只用于绕过 CEF 文档缓存，不改变插件身份。
+const isolatedPluginUrl = computed(() => {
+  const plugin = isolatedPlugin.value;
+  return plugin ? `${plugin.url}${plugin.url.includes('?') ? '&' : '?'}reff_reload=${isolatedReloadKey.value}` : '';
+});
 const activeMenu = computed(() => selectedPluginId.value ? `plugin:${selectedPluginId.value}` : '');
 const t = computed(() => (key: Parameters<typeof translate>[1]) => translate(settings.value.language, key));
 const elementLocale = computed(() => REFF_ELEMENT_LOCALES[settings.value.language]);
 const currentPageTitle = computed(() => settingsActive.value ? t.value('settings') : pluginName(activePlugin.value) || t.value('pluginFallback'));
 const statusText = computed(() => ready.value ? t.value('connected') : t.value('waiting'));
 let settingsQueue: Promise<void> = Promise.resolve();
+
+// Shell 侧监视当前隔离插件的开发标记；即使插件页面自身尚未完成 SDK 初始化，也能触发刷新。
+async function pollDevReload() {
+  const plugin = isolatedPlugin.value;
+  if (!plugin || !ready.value) { devVersion = ''; return; }
+  try {
+    const result = await reff.call<{ version: string }>('ui.dev.version', { pluginId: plugin.id });
+    if (devVersion && result.version !== devVersion) isolatedReloadKey.value += 1;
+    devVersion = result.version;
+  } catch {
+    // 正式插件没有开发标记时保持静默，不影响正常页面运行。
+  }
+}
+
+watch(isolatedPlugin, () => { devVersion = ''; });
 
 // 为每个 Schema 插件建立独立字段状态；manifest 默认值只在发现或脚本重置时写入。
 function initializeSchemaValues(discovered: PluginSummary[]) {
@@ -216,6 +239,21 @@ async function onEmbeddedMessage(event: MessageEvent) {
   if (typeof request.id !== 'string' || typeof request.method !== 'string') return;
   if (request.method === 'ui.identity') { reply({ ok: true, result: { pageId: `embedded:${plugin.id}`, kind: 'plugin', pluginId: plugin.id } }); return; }
   if (request.method === 'ui.status') { reply({ ok: true, result: { ready: ready.value } }); return; }
+  // 隔离页只能刷新当前 iframe；递增 key 会卸载旧页面并清理其订阅与请求。
+  if (request.method === 'ui.reload') {
+    if (!isCurrent()) return;
+    isolatedReloadKey.value += 1;
+    reply({ ok: true, result: {} });
+    return;
+  }
+  if (request.method === 'ui.dev.version') {
+    if (!isCurrent()) return;
+    try {
+      // 由原生宿主直接读取开发标记，绕过 CEF 自定义协议的缓存层。
+      reply({ ok: true, result: await reff.call('ui.dev.version', { pluginId }) });
+    } catch (error) { reply({ ok: false, code: 'DEV_MARKER_NOT_FOUND', message: String(error) }); }
+    return;
+  }
   if (request.method === 'ui.input.focus') {
     const params = request.params;
     if (!params || typeof params !== 'object' || typeof params.active !== 'boolean') {
@@ -396,6 +434,7 @@ onMounted(async () => {
   try { await loadPlugins(settingsPluginId, false); }
   catch (error) { ElMessage.warning(String(error)); }
   lifecycleTimer = window.setInterval(() => { void pollLifecycle(); }, 250);
+  devReloadTimer = window.setInterval(() => { void pollDevReload(); }, 700);
   selfTestTimer = window.setInterval(() => { void runSelfTest(); }, 100);
   try {
     await reff.ready();
@@ -411,6 +450,7 @@ onMounted(async () => {
 onBeforeUnmount(async () => {
   if (selfTestTimer !== undefined) window.clearInterval(selfTestTimer);
   if (lifecycleTimer !== undefined) window.clearInterval(lifecycleTimer);
+  if (devReloadTimer !== undefined) window.clearInterval(devReloadTimer);
   inputFocusReporter?.();
   inputFocusReporter = null;
   window.removeEventListener('message', onEmbeddedMessage);
@@ -438,7 +478,7 @@ onBeforeUnmount(async () => {
       <el-main class="workspace-content">
         <SettingsPanel v-if="settingsActive" :settings="settings" :plugins="plugins" :version="reffVersion" :saving="savingSettings" @change="updateSettings" @reset="resetSettings" />
         <div v-else-if="isolatedPlugin" class="isolated-host">
-          <iframe ref="isolatedFrame" :src="isolatedPlugin.url" :title="isolatedPlugin.name" />
+          <iframe :key="isolatedReloadKey" ref="isolatedFrame" :src="isolatedPluginUrl" :title="isolatedPlugin.name" />
         </div>
         <SchemaPanel
           v-else-if="selectedSchemaPlugin"

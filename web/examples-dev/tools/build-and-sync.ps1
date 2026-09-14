@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][ValidateSet('example.vue', 'example.react', 'example.html')][string]$PluginId,
     [string]$GameReframeworkRoot = 'C:\Steam\steamapps\common\MonsterHunterWilds\reframework'
 )
@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # 开发同步脚本只负责构建网页并复制插件资源，不启动或控制游戏；页面刷新由开发者手动完成。
-$devRoot = Split-Path -Parent $PSScriptRoot
+$devRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $pluginRoot = Join-Path $devRoot "web\plugins\$PluginId"
 $shellRoot = Join-Path $devRoot 'web\shell'
 $targetRoot = [IO.Path]::GetFullPath($GameReframeworkRoot).TrimEnd('\')
@@ -36,6 +36,8 @@ if (-not (Test-Path -LiteralPath $dist -PathType Container)) { throw "构建未�
 New-Item -ItemType Directory -Force -Path $targetPluginRoot | Out-Null
 Copy-Item -LiteralPath $manifest -Destination (Join-Path $targetPluginRoot 'manifest.json') -Force
 Copy-Item -LiteralPath $dist -Destination (Join-Path $targetPluginRoot 'ui') -Recurse -Force
+# 开发版本标记供 ui.dev.version 轮询；正式发布脚本不会复制此文件。
+[DateTime]::UtcNow.ToString('o') | Set-Content -LiteralPath (Join-Path $targetPluginRoot '.reff-dev-version') -Encoding utf8
 
 Write-Host "已同步 $PluginId 到 $targetPluginRoot"
-Write-Host '请在游戏内重新打开该插件页面（切换到其他插件后再切回，或关闭并按 F8 重新打开 REFF）以加载最新资源。'
+Write-Host '开发示例会通过 installDevReload 自动检测标记并刷新当前页面；未安装该辅助函数时再手动切换插件页面。'

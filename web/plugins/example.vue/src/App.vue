@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, shallowRef } from 'vue';
 import { ElMessage, REFF_UI_VERSION } from '@reff/ui';
-import { createEmbeddedTransport, createReffClient } from '@reff-sdk/index';
+import { createEmbeddedTransport, createReffClient, installDevReload } from '@reff-sdk/index';
 
 interface Snapshot { gameName: string; reframeworkVersion: string; hp: { available: boolean; current?: number; max?: number; percent?: number; adjustable: boolean }; uptimeSeconds: number; refreshCount: number; }
 const reff = createReffClient(createEmbeddedTransport());
+const stopDevReload = installDevReload(reff);
 const snapshot = shallowRef<Snapshot | null>(null);
 const ready = shallowRef(false);
 const hpPercent = shallowRef(100);
@@ -51,7 +52,7 @@ onMounted(async () => {
     reportReady();
   } catch (error) { ElMessage.error(String(error)); }
 });
-onBeforeUnmount(() => { if (refreshTimer !== undefined) window.clearInterval(refreshTimer); reff.dispose(); });
+onBeforeUnmount(() => { if (refreshTimer !== undefined) window.clearInterval(refreshTimer); stopDevReload(); reff.dispose(); });
 </script>
 
 <template>

@@ -86,6 +86,8 @@ reff.dispose();
 
 详细消息、错误码和生命周期约束见 [插件与桥接契约](plugin-contract.zh-CN.md)。
 
+开发时可在插件入口安装 `installDevReload(reff)`。配合 `watch-and-sync.ps1` 使用时，源码每次成功构建同步都会自动刷新当前插件页面；该辅助功能只用于开发包。
+
 ## 复用 REFF 公共 Vue / Element Plus（0.1.0 预览）
 
 生产入口 HTML 先引用公共样式，再引用插件自己的模块；不用 CDN，也不复制组件库到插件包：

@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createEmbeddedTransport, createReffClient } from '@reff-sdk/index';
+import { createEmbeddedTransport, createReffClient, installDevReload } from '@reff-sdk/index';
 import './style.css';
 
 type Snapshot = { gameName: string; reframeworkVersion: string; hp: { available: boolean; current?: number; max?: number; percent?: number; adjustable: boolean }; uptimeSeconds: number; refreshCount: number };
 const reff = createReffClient(createEmbeddedTransport());
+const stopDevReload = installDevReload(reff);
+window.addEventListener('pagehide', stopDevReload, { once: true });
 
 // React 示例展示与 Vue 示例相同的 REFF 服务数据，突出 SDK 不依赖 Vue。
 function App() {
