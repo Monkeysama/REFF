@@ -28,7 +28,7 @@
 3. 保留已有 `reframework/data/REFF/settings.json`。
 4. 启动游戏后按 F8 打开 REFF。
 
-开发示例另行提供于 `REFF-0.1.0-preview6-examples.zip`。该包同样包含顶层 `reframework/`，并额外安装 `autorun/REFF.examples.lua` 与 `reff/plugins/example.*`；仅用于开发和回归测试。
+开发示例另行提供于 `REFF-0.1.0-preview6-examples.zip`。这是正式 Runtime 的增量包，包含顶层 `reframework/autorun/REFF.examples.lua`、`reframework/reff/plugins/example.*` 的可运行构建产物，以及 `reframework/reff/examples-dev` 下的源码和构建依赖说明；不包含 DLL、CEF 或 Shell。请先安装同版本正式 Runtime，再将此包合并到同一游戏目录；仅用于开发和回归测试。
 
 ## 文件与日志
 
@@ -47,4 +47,3 @@
 ## 候选包
 
 最新候选包为 `REFF-0.1.0-preview6.zip`，包含顶层 `reframework/` 目录。REFF 原生插件与 CEF 宿主的诊断日志统一写入 `reframework/data/REFF/log/`；旧版 `reframework/logs/` 中的文件不会自动删除。
-

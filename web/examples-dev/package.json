@@ -1,0 +1,37 @@
+{
+  "name": "reff-examples-dev",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.19.0",
+  "engines": { "node": ">=24 <25", "pnpm": ">=11 <12" },
+  "scripts": {
+    "install:deps": "pnpm --dir web/shell install --frozen-lockfile",
+    "typecheck": "pnpm --dir web/shell exec vue-tsc --noEmit --project ../plugins/tsconfig.json",
+    "build:vue": "pnpm --dir web/shell exec vite build --config ../plugins/example.vue/vite.config.ts",
+    "build:react": "pnpm --dir web/shell exec vite build --config ../plugins/example.react/vite.config.ts",
+    "build:html": "pnpm --dir web/shell exec vite build --config ../plugins/example.html/vite.config.ts",
+    "build": "pnpm run typecheck && pnpm run build:vue && pnpm run build:react && pnpm run build:html",
+    "sync:vue": "powershell -ExecutionPolicy Bypass -File ./tools/build-and-sync.ps1 -PluginId example.vue",
+    "sync:react": "powershell -ExecutionPolicy Bypass -File ./tools/build-and-sync.ps1 -PluginId example.react",
+    "sync:html": "powershell -ExecutionPolicy Bypass -File ./tools/build-and-sync.ps1 -PluginId example.html",
+    "watch:vue": "powershell -ExecutionPolicy Bypass -File ./tools/watch-and-sync.ps1 -PluginId example.vue",
+    "watch:react": "powershell -ExecutionPolicy Bypass -File ./tools/watch-and-sync.ps1 -PluginId example.react",
+    "watch:html": "powershell -ExecutionPolicy Bypass -File ./tools/watch-and-sync.ps1 -PluginId example.html"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "2.3.2",
+    "element-plus": "2.10.7",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "vue": "3.5.21",
+    "vue-i18n": "10.0.8"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9",
+    "@vitejs/plugin-vue": "5.2.4",
+    "typescript": "5.9.2",
+    "vite": "7.1.5",
+    "vue-tsc": "3.0.6"
+  }
+}

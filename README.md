@@ -28,7 +28,7 @@ REFF 是 REFramework 的扩展，不替换或修改 REFramework 原有菜单和�
 4. 保留已有的 `reframework/data/REFF/settings.json`。
 5. 启动游戏，关闭 REFramework 原生菜单后按 **F8** 打开 REFF，按 **F8** 或 **Esc** 关闭。
 
-开发和回归测试还可以安装 Release 中的示例插件包。示例包需要在 Runtime 包之后合并安装，包含 Vue 3、React 和原生 HTML 三种等功能接入示例，不建议用于正式分发。
+开发和回归测试还可以安装 Release 中的示例插件增量包。请先解压同版本正式 Runtime 包，再将示例包覆盖合并到同一个游戏目录；示例包包含可直接运行的构建产物，以及 `reff/examples-dev` 下的 Vue 3、React、原生 HTML 源码、SDK、公共 UI 源码、Vite 配置和锁定依赖，不重复包含 DLL、CEF 或 Shell。
 
 ## 文件位置
 

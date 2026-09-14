@@ -1,4 +1,4 @@
-param(
+﻿param(
     # 发布标签，例如 v0.1.0-preview7；标签的基础版本必须与 version.json 一致。
     [Parameter(Mandatory = $true)][string]$Tag,
     # 仅在传入此开关时调用 GitHub CLI 创建或更新 Release；默认只生成本地资产。
@@ -39,6 +39,14 @@ function Invoke-REFFScript([string]$Name, [string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "$Name 执行失败（退出码：$LASTEXITCODE）" }
 }
 
+# Windows PowerShell 5.1 没有 Path.GetRelativePath；发布源码包只处理仓库根目录内的路径。
+function Get-REFFRelativePath([string]$Root, [string]$Path) {
+    $normalizedRoot = [IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
+    $normalizedPath = [IO.Path]::GetFullPath($Path)
+    if (-not $normalizedPath.StartsWith($normalizedRoot, [StringComparison]::OrdinalIgnoreCase)) { throw "路径不在仓库根目录内：$normalizedPath" }
+    return $normalizedPath.Substring($normalizedRoot.Length)
+}
+
 # 将标签限制为可排序的语义化版本，避免把任意字符串写入文件名或 Release 标签。
 $normalizedTag = $Tag.Trim()
 if ($normalizedTag.StartsWith('refs/tags/')) { $normalizedTag = $normalizedTag.Substring(10) }
@@ -55,6 +63,7 @@ if ($releaseVersion -notmatch "^$([regex]::Escape($projectVersion))(?:-|$)") {
 New-Item -ItemType Directory -Force -Path $artifactsRoot | Out-Null
 $runtimeZip = Join-Path $artifactsRoot "REFF-$releaseVersion.zip"
 $examplesZip = Join-Path $artifactsRoot "REFF-$releaseVersion-examples.zip"
+$examplesStageRoot = Join-Path $repoRoot 'staging\examples\reframework'
 $runtimeHash = "$runtimeZip.sha256"
 $examplesHash = "$examplesZip.sha256"
 
@@ -68,7 +77,61 @@ if (-not $SkipBuild) {
     Invoke-REFFScript 'build.ps1' @('-Profile', 'GameTest')
     Invoke-REFFScript 'stage.ps1' @('-BuildRoot', (Join-Path $repoRoot 'build-ime'), '-IncludeExamples')
     $stageRoot = Join-Path $repoRoot 'staging\reframework'
-    Compress-Archive -Path $stageRoot -DestinationPath $examplesZip -CompressionLevel Optimal
+    # 示例包是正式 Runtime 的增量包，只提取示例后端脚本和三个插件目录，不重复打包 DLL/CEF/Shell。
+    if (Test-Path -LiteralPath (Split-Path $examplesStageRoot -Parent)) { Remove-Item -LiteralPath (Split-Path $examplesStageRoot -Parent) -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $examplesStageRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $examplesStageRoot 'autorun'), (Join-Path $examplesStageRoot 'reff\plugins') | Out-Null
+    Copy-Item -LiteralPath (Join-Path $stageRoot 'autorun\REFF.examples.lua') -Destination (Join-Path $examplesStageRoot 'autorun\REFF.examples.lua') -Force
+    foreach ($exampleId in @('example.vue', 'example.react', 'example.html')) {
+        $source = Join-Path $stageRoot "reff\plugins\$exampleId"
+        $destination = Join-Path $examplesStageRoot "reff\plugins\$exampleId"
+        Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
+    }
+    # 附带可复用的源码开发目录、公共 SDK/类型源码和锁定依赖；排除已构建 dist，避免重复占用体积。
+    $devRoot = Join-Path $examplesStageRoot 'reff\examples-dev'
+    New-Item -ItemType Directory -Force -Path $devRoot | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'web\examples-dev\README.zh-CN.md') -Destination $devRoot -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'web\examples-dev\package.json') -Destination $devRoot -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'web\examples-dev\pnpm-workspace.yaml') -Destination $devRoot -Force
+    $devFiles = @(
+        (Join-Path $repoRoot 'web\plugins\tsconfig.json'),
+        (Join-Path $repoRoot 'web\sdk'),
+        (Join-Path $repoRoot 'web\shared\src'),
+        (Join-Path $repoRoot 'web\shell\package.json'),
+        (Join-Path $repoRoot 'web\shell\pnpm-lock.yaml'),
+        (Join-Path $repoRoot 'examples\lua\REFF.examples.lua')
+    )
+    foreach ($source in $devFiles) {
+        $relative = Get-REFFRelativePath $repoRoot $source
+        $destination = Join-Path $devRoot $relative
+        if ((Get-Item -LiteralPath $source).PSIsContainer) {
+            New-Item -ItemType Directory -Force -Path $destination | Out-Null
+            Get-ChildItem -LiteralPath $source -File -Recurse | ForEach-Object {
+                $childRelative = Get-REFFRelativePath $source $_.FullName
+                $childDestination = Join-Path $destination $childRelative
+                New-Item -ItemType Directory -Force -Path (Split-Path $childDestination) | Out-Null
+                Copy-Item -LiteralPath $_.FullName -Destination $childDestination -Force
+            }
+        } else {
+            New-Item -ItemType Directory -Force -Path (Split-Path $destination) | Out-Null
+            Copy-Item -LiteralPath $source -Destination $destination -Force
+        }
+    }
+    foreach ($exampleId in @('example.vue', 'example.react', 'example.html')) {
+        $source = Join-Path $repoRoot "web\plugins\$exampleId"
+        $destination = Join-Path $devRoot "web\plugins\$exampleId"
+        Get-ChildItem -LiteralPath $source -File -Recurse | Where-Object { $_.FullName -notmatch '\\ui\\dist\\' } | ForEach-Object {
+            $relative = Get-REFFRelativePath $source $_.FullName
+            $target = Join-Path $destination $relative
+            New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
+            Copy-Item -LiteralPath $_.FullName -Destination $target -Force
+        }
+    }
+    $syncScript = Join-Path $repoRoot 'web\examples-dev\tools\build-and-sync.ps1'
+    New-Item -ItemType Directory -Force -Path (Join-Path $devRoot 'tools') | Out-Null
+    Copy-Item -LiteralPath $syncScript -Destination (Join-Path $devRoot 'tools\build-and-sync.ps1') -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'web\examples-dev\tools\watch-and-sync.ps1') -Destination (Join-Path $devRoot 'tools\watch-and-sync.ps1') -Force
+    Compress-Archive -Path $examplesStageRoot -DestinationPath $examplesZip -CompressionLevel Optimal
 
     # 正式包重新构建默认原生配置，并且不带测试脚本和示例插件。
     Invoke-REFFScript 'build-web.ps1' @()
@@ -90,7 +153,10 @@ function Assert-ReleaseArchive([string]$Archive, [bool]$Examples) {
             'reframework/autorun/REFF.examples.lua',
             'reframework/reff/plugins/example.vue/manifest.json',
             'reframework/reff/plugins/example.react/manifest.json',
-            'reframework/reff/plugins/example.html/manifest.json'
+            'reframework/reff/plugins/example.html/manifest.json',
+            'reframework/reff/examples-dev/README.zh-CN.md',
+            'reframework/reff/examples-dev/web/shell/package.json',
+            'reframework/reff/examples-dev/web/shell/pnpm-lock.yaml'
         )
     } else { @('reframework/plugins/REFF.dll') }
     foreach ($path in $required) {
@@ -104,6 +170,22 @@ function Assert-ReleaseArchive([string]$Archive, [bool]$Examples) {
         }
         if ($entries | Where-Object { ([string]$_).TrimStart('./').Replace('\', '/') -match '^reframework/reff/plugins/example\.' }) {
             throw "正式 Runtime 包不得包含示例插件：$Archive"
+        }
+    } else {
+        # 增量示例包不得携带 Runtime 文件；用户应先安装同版本正式包再合并此包。
+        $allowed = @(
+            'reframework/autorun/REFF.examples.lua',
+            'reframework/reff/plugins/example.vue/',
+            'reframework/reff/plugins/example.react/',
+            'reframework/reff/plugins/example.html/',
+            'reframework/reff/examples-dev/'
+        )
+        foreach ($entry in $entries) {
+            $normalized = ([string]$entry).TrimStart('./').Replace('\', '/')
+            if (-not $normalized -or $normalized -eq 'reframework/' -or $normalized.EndsWith('/')) { continue }
+            if (-not ($normalized -eq 'reframework/autorun/REFF.examples.lua' -or $normalized -match '^reframework/reff/plugins/example\.(vue|react|html)/' -or $normalized -match '^reframework/reff/examples-dev/')) {
+                throw "示例增量包包含非插件文件 $normalized：$Archive"
+            }
         }
     }
 }
@@ -122,7 +204,7 @@ if (-not $notesPath) {
 }
 if (-not $notesPath) {
     $notesPath = Join-Path $artifactsRoot "release-notes-$releaseVersion.zh-CN.md"
-    @("# REFramework Frontend $releaseVersion", '', '本版本提供 REFF 正式 Runtime 包及包含示例插件的开发测试包。', '', '支持范围：Monster Hunter Wilds、Windows x64、DirectX 12、键鼠。') |
+    @("# REFramework Frontend $releaseVersion", '', '本版本提供 REFF 正式 Runtime 包及可叠加安装的示例插件增量包。', '', '支持范围：Monster Hunter Wilds、Windows x64、DirectX 12、键鼠。') |
         Set-Content -LiteralPath $notesPath -Encoding utf8
 }
 if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) { throw "发布说明不存在：$notesPath" }
