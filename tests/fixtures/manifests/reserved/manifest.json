@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "id": "reff.settings",
+  "name": "Reserved",
+  "version": "0.1.0",
+  "reffApi": ">=0.1.0 <0.2.0",
+  "games": ["MHWILDS"],
+  "ui": { "kind": "page", "mode": "isolated-page", "entry": "ui/index.html" },
+  "methods": [],
+  "events": [],
+  "fallback": "none"
+}

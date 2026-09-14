@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "id": "example.settings",
+  "name": "设置示例",
+  "version": "0.1.0",
+  "reffApi": ">=0.1.0 <0.2.0",
+  "games": ["MHWILDS"],
+  "ui": {"kind": "schema", "entry": "ui/index.html", "schema": {"version": 1, "title": "设置示例", "load": "example.settings.get", "changeEvent": "example.settings.changed", "fields": [{"id": "enabled", "type": "switch", "label": "启用", "default": true}]}},
+  "methods": ["example.settings.get", "example.settings.set"],
+  "events": ["example.settings.changed"],
+  "fallback": "plugin-managed"
+}

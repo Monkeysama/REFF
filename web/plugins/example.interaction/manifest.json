@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "id": "example.interaction",
+  "name": "交互示例",
+  "version": "0.1.0",
+  "reffApi": ">=0.1.0 <0.2.0",
+  "games": ["MHWILDS"],
+  "ui": {"kind": "page", "mode": "isolated-page", "entry": "ui/dist/ui-vue.html"},
+  "methods": ["example.interaction.get", "example.interaction.change"],
+  "events": ["example.interaction.changed"],
+  "fallback": "none"
+}

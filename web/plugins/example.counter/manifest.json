@@ -1,0 +1,22 @@
+{
+  "manifestVersion": 1,
+  "id": "example.counter",
+  "name": "计数器",
+  "version": "0.1.0",
+  "reffApi": ">=0.1.0 <0.2.0",
+  "games": ["MHWILDS"],
+  "ui": { "kind": "schema", "mode": "component", "entry": "ui/index.html", "schema": {
+    "version": 1,
+    "title": "计数器",
+    "load": "example.counter.get",
+    "changeEvent": "example.counter.changed",
+    "fields": [
+      {"id": "count", "type": "number", "label": "当前值", "min": -1000000, "max": 1000000, "default": 0, "readonly": true},
+      {"id": "amount", "type": "number", "label": "步进", "min": -10, "max": 10, "step": 1, "default": 1},
+      {"id": "increment", "type": "button", "label": "执行一次", "action": "example.counter.increment"}
+    ]
+  }},
+  "methods": ["example.counter.get", "example.counter.increment"],
+  "events": ["example.counter.changed"],
+  "fallback": "none"
+}

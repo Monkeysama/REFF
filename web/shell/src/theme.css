@@ -1,0 +1,2 @@
+/* 兼容旧源码入口；公共主题由 shared 构建并分发。 */
+@import "../../shared/src/theme.css";

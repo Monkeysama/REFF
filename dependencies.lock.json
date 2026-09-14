@@ -1,0 +1,29 @@
+{
+  "reframework": {
+    "commit": "f9a4cf0e2f70a73c5552129f47fbdd95cb8d1903",
+    "url": "https://api.github.com/repos/praydog/REFramework/tarball/f9a4cf0e2f70a73c5552129f47fbdd95cb8d1903",
+    "sha256": "f388d7c69a9b627b5f2ffd47549d42f77f56707d9fd57bd3aa4f142344b9c69d",
+    "luaVersion": "5.4.3",
+    "pluginApiVersion": "1.15.0"
+  },
+  "cef": {
+    "version": "152.0.6+g708dc14+chromium-152.0.7977.83",
+    "url": "https://cef-builds.spotifycdn.com/cef_binary_152.0.6%2Bg708dc14%2Bchromium-152.0.7977.83_windows64_minimal.tar.bz2",
+    "sha256": "db3e0751979c3cb3068f732ed4f0ef12ade69d183d98ceee120ad08c8d00f74c",
+    "sha1": "e5e3020627f4528bd43e22f4c4970000b0458e99",
+    "bootstrap": true
+  },
+  "testedReframeworkDllSha256": "99cceee4d5db28dd86599ebae80a41b89aa2706b4c3280874a6ee9c2063d06cc",
+  "web": {
+    "node": "24.19.0",
+    "vue": "3.5.21",
+    "vite": "7.1.5",
+    "typescript": "5.9.2",
+    "elementPlus": "2.10.7",
+    "elementPlusIconsVue": "2.3.2",
+    "pluginVue": "5.2.4",
+    "vueTsc": "3.0.6",
+    "offline": true,
+    "license": "MIT"
+  }
+}

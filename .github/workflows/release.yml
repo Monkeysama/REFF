@@ -1,0 +1,53 @@
+name: REFF Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的版本标签，例如 v0.1.0-preview7'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 准备 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+
+      - name: 准备 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: pnpm
+          cache-dependency-path: web/shell/pnpm-lock.yaml
+
+      - name: 安装 Web 依赖
+        working-directory: web/shell
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: 准备锁定依赖
+        shell: pwsh
+        run: .\tools\fetch-dependencies.ps1
+
+      - name: 构建并发布
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          .\tools\release.ps1 -Tag $env:RELEASE_TAG -Publish

@@ -1,0 +1,71 @@
+/* REFF 全局视觉令牌：CEF Shell 与 Element Plus 共享暗色层级，禁止组件库回退到默认浅色。 */
+:root {
+  --reff-bg: #10151e;
+  --reff-bg-rgb: 16 21 30;
+  --reff-surface: #151d28;
+  --reff-surface-rgb: 21 29 40;
+  --reff-card: #1a2431;
+  --reff-raised: #202c3b;
+  --reff-border: #2d3b4d;
+  --reff-text: #e9eef6;
+  --reff-muted: #91a0b5;
+  --reff-accent: #67d3b2;
+  --reff-accent-strong: #82e2c5;
+  --reff-panel-opacity: 0.94;
+  --reff-corner-radius: 6px;
+  --reff-surface-blur: 8px;
+  --reff-surface-blur-strength: 0.5;
+  --reff-frost-alpha: 0.075;
+  --reff-text-scale: 1;
+
+  /* Element Plus 色彩语义：所有组件表面、文字、边框和状态都映射到 REFF 令牌。 */
+  --el-color-primary: var(--reff-accent);
+  --el-color-primary-light-3: #82ddc2;
+  --el-color-primary-light-5: #4aa58d;
+  --el-color-primary-light-7: #2d705f;
+  --el-color-primary-light-8: #24594d;
+  --el-color-primary-light-9: #1b3f38;
+  --el-color-primary-dark-2: #9ae8d1;
+  --el-color-success: var(--reff-accent);
+  --el-color-success-light-9: #1b3f38;
+  --el-bg-color: var(--reff-surface);
+  --el-bg-color-page: var(--reff-bg);
+  --el-bg-color-overlay: var(--reff-raised);
+  --el-fill-color-blank: var(--reff-card);
+  --el-fill-color: var(--reff-raised);
+  --el-fill-color-light: #1d2734;
+  --el-fill-color-lighter: #202b39;
+  --el-fill-color-dark: #131b26;
+  --el-fill-color-darker: #0d121a;
+  --el-text-color-primary: var(--reff-text);
+  --el-text-color-regular: #c5d0df;
+  --el-text-color-secondary: var(--reff-muted);
+  --el-text-color-placeholder: #718096;
+  --el-border-color: var(--reff-border);
+  --el-border-color-light: #354458;
+  --el-border-color-lighter: #2a3748;
+  --el-border-color-extra-light: #243040;
+  --el-disabled-bg-color: #17202c;
+  --el-disabled-text-color: #6e7b8d;
+  --el-disabled-border-color: #293748;
+  --el-mask-color: rgb(5 8 12 / 72%);
+
+  /* 菜单有独立变量，必须显式覆盖，避免出现浅色侧栏。 */
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: #aebbd0;
+  --el-menu-hover-bg-color: #202d3c;
+  --el-menu-active-color: var(--reff-accent-strong);
+  --el-menu-border-color: transparent;
+  --el-card-bg-color: var(--reff-card);
+}
+
+* { box-sizing: border-box; }
+html, body, #app { width: 100%; height: 100%; margin: 0; background: transparent; }
+body { color: var(--reff-text); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; font-size: calc(14px * var(--reff-text-scale)); }
+
+/* Element Plus 部分控件使用固定尺寸，按文字比例同步高度、内边距和圆角，避免只放大文字。 */
+.el-button { display: inline-flex; align-items: center; justify-content: center; line-height: 1.2; height: calc(32px * var(--reff-text-scale)); padding: 0 calc(15px * var(--reff-text-scale)); border-radius: calc(4px * var(--reff-text-scale)); }
+.el-button--large { height: calc(40px * var(--reff-text-scale)); padding: 0 calc(19px * var(--reff-text-scale)); }
+.el-button--small { height: calc(24px * var(--reff-text-scale)); padding: 0 calc(11px * var(--reff-text-scale)); }
+.el-tag { height: calc(24px * var(--reff-text-scale)); padding: 0 calc(9px * var(--reff-text-scale)); border-radius: calc(4px * var(--reff-text-scale)); font-size: calc(12px * var(--reff-text-scale)); }
+.el-tag--small { height: calc(20px * var(--reff-text-scale)); padding: 0 calc(7px * var(--reff-text-scale)); }
