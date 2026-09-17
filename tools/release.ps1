@@ -133,10 +133,10 @@ if (-not $SkipBuild) {
     Copy-Item -LiteralPath (Join-Path $repoRoot 'web\examples-dev\tools\watch-and-sync.ps1') -Destination (Join-Path $devRoot 'tools\watch-and-sync.ps1') -Force
     Compress-Archive -Path $examplesStageRoot -DestinationPath $examplesZip -CompressionLevel Optimal
 
-    # 正式包重新构建默认原生配置，并且不带测试脚本和示例插件。
+    # 正式包也使用 GameTest 配置，确保分发 DLL 包含已验收的透明 IME 代理；正式包仍不带测试脚本和示例插件。
     Invoke-REFFScript 'build-web.ps1' @()
-    Invoke-REFFScript 'build.ps1' @('-Profile', 'Default')
-    Invoke-REFFScript 'stage.ps1' @('-BuildRoot', (Join-Path $repoRoot 'build'))
+    Invoke-REFFScript 'build.ps1' @('-Profile', 'GameTest')
+    Invoke-REFFScript 'stage.ps1' @('-BuildRoot', (Join-Path $repoRoot 'build-ime'))
     Compress-Archive -Path $stageRoot -DestinationPath $runtimeZip -CompressionLevel Optimal
 }
 
@@ -204,7 +204,7 @@ if (-not $notesPath) {
 }
 if (-not $notesPath) {
     $notesPath = Join-Path $artifactsRoot "release-notes-$releaseVersion.zh-CN.md"
-    @("# REFramework Frontend $releaseVersion", '', '本版本提供 REFF 正式 Runtime 包及可叠加安装的示例插件增量包。', '', '支持范围：Monster Hunter Wilds、Windows x64、DirectX 12、键鼠。') |
+    @("# REFramework Frontend $releaseVersion", '', '本版本提供 REFF 正式 Runtime 包及可叠加安装的示例插件增量包。', '', '支持范围：Monster Hunter Wilds。') |
         Set-Content -LiteralPath $notesPath -Encoding utf8
 }
 if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) { throw "发布说明不存在：$notesPath" }
