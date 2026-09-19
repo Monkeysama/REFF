@@ -1011,7 +1011,10 @@ void on_present() {
 #if REFF_ENABLE_PERF_DIAGNOSTICS
         const auto draw_started = std::chrono::steady_clock::now();
 #endif
-        const bool drawn = runtime->renderer.draw(*frame, cursor_position, runtime->cursor_owned, client_size,
+        // 系统光标租约经窗口消息异步归还；渲染侧同时检查前台状态，确保 Alt-Tab 首帧不残留虚拟光标。
+        const bool draw_cursor = foreground && !runtime->focus_suspended.load(std::memory_order_acquire) &&
+            runtime->cursor_owned.load(std::memory_order_acquire);
+        const bool drawn = runtime->renderer.draw(*frame, cursor_position, draw_cursor, client_size,
                                                    {rect.left, rect.top}, rect, runtime->resize_cursor_mode.load(),
                                                    runtime->viewport_generation.load(std::memory_order_acquire),
                                                    runtime->panel_resize_edges.load(std::memory_order_acquire) != 0);
