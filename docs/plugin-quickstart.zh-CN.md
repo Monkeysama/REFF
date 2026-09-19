@@ -123,3 +123,9 @@ rollupOptions: {
 在仓库根运行 `tools/build-web.ps1` 生成正式公共模块与 Shell；开发示例使用 `tools/build-web.ps1 -IncludeExamples`。该脚本同时检查类型、模块引用和公共 CSS 引用。`tools/stage.ps1` 默认不打包示例，开发回归需显式传入 `-IncludeExamples`。当前示例包提供三个功能相同的 `isolated-page` 页面：`example.vue` 使用 Vue 3，`example.react` 使用 React，`example.html` 使用原生 HTML/JavaScript。三者均显示当前游戏、REFramework 版本、REFF 运行时间和刷新次数；页面打开后每 500ms 自动读取最新快照。在 Monster Hunter Wilds 中额外显示本地玩家血量，并可调用各自命名空间的方法调整血量百分比。
 
 公共文件可复用，但 iframe 中的状态、Vue 应用和组件实例各自独立。公共 CSS 包含 REFF 暗色变量与基础盒模型，插件可以在随后加载的 CSS 中覆盖自己的布局。公共资源 URL 需要与 Core 版本匹配；插件应在发布包中固定依赖版本并随包提供许可证信息。
+
+### 公共缩放令牌
+
+REFF 的文字大小设置通过 `--reff-text-scale` 驱动，并同步提供以下公共令牌：`--reff-font-size-xs`、`--reff-font-size-sm`、`--reff-font-size-md`、`--reff-font-size-lg`、`--reff-font-size-xl`，以及 `--reff-control-height-lg`、`--reff-control-height`、`--reff-control-height-sm`。插件自己的文字、按钮、输入框和卡片尺寸应基于这些令牌或 `calc(... * var(--reff-text-scale))` 编写，不要把用户可见文字和控件尺寸固定为不可缩放的 `px`。
+
+公共主题已经覆盖 REFF 使用的 Element Plus 输入框、选择框、下拉项、复选框、单选框、开关、滑块和弹层。第三方插件如果引入自己的组件库，仍需在插件 CSS 中把该组件库的字体和控件尺寸映射到这些令牌；REFF 不会强制修改插件资源根目录内的任意固定样式。

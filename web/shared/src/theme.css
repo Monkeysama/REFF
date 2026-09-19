@@ -17,6 +17,16 @@
   --reff-surface-blur-strength: 0.5;
   --reff-frost-alpha: 0.075;
   --reff-text-scale: 1;
+  --reff-font-size-xs: 12px;
+  --reff-font-size-sm: 13px;
+  --reff-font-size-md: 14px;
+  --reff-font-size-lg: 16px;
+  --reff-font-size-xl: 18px;
+  --reff-control-height-lg: 40px;
+  --reff-control-height: 32px;
+  --reff-control-height-sm: 24px;
+  --reff-control-padding-x: 12px;
+  --reff-control-padding-y: 4px;
 
   /* Element Plus 色彩语义：所有组件表面、文字、边框和状态都映射到 REFF 令牌。 */
   --el-color-primary: var(--reff-accent);
@@ -57,6 +67,13 @@
   --el-menu-active-color: var(--reff-accent-strong);
   --el-menu-border-color: transparent;
   --el-card-bg-color: var(--reff-card);
+  --el-select-font-size: var(--reff-font-size-md);
+  --el-select-input-font-size: var(--reff-font-size-md);
+  --el-input-height: var(--reff-control-height);
+  --el-checkbox-font-size: var(--reff-font-size-md);
+  --el-radio-font-size: var(--reff-font-size-md);
+  --el-slider-button-size: 20px;
+  --el-slider-button-wrapper-size: 36px;
 }
 
 * { box-sizing: border-box; }
@@ -69,3 +86,24 @@ body { color: var(--reff-text); font-family: "Segoe UI", "Microsoft YaHei", sans
 .el-button--small { height: calc(24px * var(--reff-text-scale)); padding: 0 calc(11px * var(--reff-text-scale)); }
 .el-tag { height: calc(24px * var(--reff-text-scale)); padding: 0 calc(9px * var(--reff-text-scale)); border-radius: calc(4px * var(--reff-text-scale)); font-size: calc(12px * var(--reff-text-scale)); }
 .el-tag--small { height: calc(20px * var(--reff-text-scale)); padding: 0 calc(7px * var(--reff-text-scale)); }
+
+/* Element Plus 中仍使用固定 px 的控件由公共主题统一接入缩放令牌；弹层也必须覆盖，因为它们挂载在 body 下。 */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper { font-size: var(--reff-font-size-md); }
+.el-input__wrapper,
+.el-select__wrapper { min-height: var(--reff-control-height); }
+.el-select__wrapper { line-height: calc(24px * var(--reff-text-scale)); padding: var(--reff-control-padding-y) var(--reff-control-padding-x); }
+.el-select-dropdown__item { font-size: var(--reff-font-size-md); height: calc(34px * var(--reff-text-scale)); line-height: calc(34px * var(--reff-text-scale)); padding-left: calc(20px * var(--reff-text-scale)); padding-right: calc(32px * var(--reff-text-scale)); }
+.el-dropdown-menu__item,
+.el-menu-item,
+.el-checkbox,
+.el-radio,
+.el-switch,
+.el-form-item__label { font-size: var(--reff-font-size-md); }
+.el-radio { height: var(--reff-control-height); }
+.el-checkbox { min-height: var(--reff-control-height); }
+.el-switch { --el-switch-height: var(--reff-control-height-sm); }
+.el-slider { height: var(--reff-control-height); }
+.el-slider__button { width: var(--el-slider-button-size); height: var(--el-slider-button-size); }
+.el-popper { font-size: var(--reff-font-size-sm); }
