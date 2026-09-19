@@ -4,7 +4,7 @@
     # 仅在传入此开关时调用 GitHub CLI 创建或更新 Release；默认只生成本地资产。
     [switch]$Publish,
     # 使用已有构建产物时跳过构建步骤，仍会重新生成 staging、压缩包和校验文件。
-    [switch]$SkipBuild,
+    [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -138,6 +138,10 @@ if (-not $SkipBuild) {
     Invoke-REFFScript 'build.ps1' @('-Profile', 'GameTest')
     Invoke-REFFScript 'stage.ps1' @('-BuildRoot', (Join-Path $repoRoot 'build-ime'))
     Compress-Archive -Path $stageRoot -DestinationPath $runtimeZip -CompressionLevel Optimal
+
+    # 统一实验包使用独立 build-compat，覆盖所有 experimental 目标，不改变正式 staging。
+    & (Join-Path $repoRoot 'tools\package-compatibility.ps1') -AllExperimental -PackageVersion $releaseVersion -OutputDirectory $artifactsRoot
+    if ($LASTEXITCODE -ne 0) { throw '统一实验包生成失败' }
 }
 
 function Assert-ReleaseArchive([string]$Archive, [bool]$Examples) {
@@ -190,27 +194,15 @@ function Assert-ReleaseArchive([string]$Archive, [bool]$Examples) {
     }
 }
 
-foreach ($asset in @($runtimeZip, $examplesZip)) {
+foreach ($asset in @($runtimeZip, $examplesZip, $experimentalZip)) {
     if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) { throw "缺少发布资产：$asset" }
-    Assert-ReleaseArchive $asset ($asset -eq $examplesZip)
+    if ($asset -ne $experimentalZip) { Assert-ReleaseArchive $asset ($asset -eq $examplesZip) }
     $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
     "$hash  $([IO.Path]::GetFileName($asset))" | Set-Content -LiteralPath "$asset.sha256" -Encoding ascii
 }
 
-$notesPath = $NotesFile
-if (-not $notesPath) {
-    $candidate = Join-Path $repoRoot "docs\release-notes-$releaseVersion.zh-CN.md"
-    if (Test-Path -LiteralPath $candidate) { $notesPath = $candidate }
-}
-if (-not $notesPath) {
-    $notesPath = Join-Path $artifactsRoot "release-notes-$releaseVersion.zh-CN.md"
-    @("# REFramework Frontend $releaseVersion", '', '本版本提供 REFF 正式 Runtime 包及可叠加安装的示例插件增量包。', '', '支持范围：Monster Hunter Wilds 与 Monster Hunter Rise（已验证，Windows x64 / D3D12 / 键鼠）。') |
-        Set-Content -LiteralPath $notesPath -Encoding utf8
-}
-if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) { throw "发布说明不存在：$notesPath" }
-
 Write-Host "发布资产已生成："
-Get-Item -LiteralPath $runtimeZip, $examplesZip, $runtimeHash, $examplesHash | Select-Object Name, Length | Format-Table -AutoSize
+Get-Item -LiteralPath $runtimeZip, $examplesZip, $experimentalZip, $runtimeHash, $examplesHash, $experimentalHash | Select-Object Name, Length | Format-Table -AutoSize
 
 if ($Publish) {
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw '未找到 GitHub CLI gh；请先安装并执行 gh auth login。' }
@@ -219,13 +211,13 @@ if ($Publish) {
     $releaseExists = ($LASTEXITCODE -eq 0)
     if ($releaseExists) {
         # 已存在的标签采用覆盖上传，允许修复构建后重复发布同一版本。
-        & gh release edit $normalizedTag --title "REFramework Frontend $releaseVersion" --notes-file $notesPath
+        & gh release edit $normalizedTag --title "REFF-$normalizedTag" --notes ''
         if ($LASTEXITCODE -ne 0) { throw "GitHub Release 说明更新失败（退出码：$LASTEXITCODE）" }
-        & gh release upload $normalizedTag $runtimeZip $examplesZip $runtimeHash $examplesHash --clobber
+        & gh release upload $normalizedTag $runtimeZip $examplesZip $experimentalZip $runtimeHash $examplesHash $experimentalHash --clobber
         if ($LASTEXITCODE -ne 0) { throw "GitHub Release 资产更新失败（退出码：$LASTEXITCODE）" }
     }
     else {
-        $ghArguments = @('release', 'create', $normalizedTag, $runtimeZip, $examplesZip, $runtimeHash, $examplesHash, '--title', "REFramework Frontend $releaseVersion", '--notes-file', $notesPath, '--verify-tag')
+        $ghArguments = @('release', 'create', $normalizedTag, $runtimeZip, $examplesZip, $experimentalZip, $runtimeHash, $examplesHash, $experimentalHash, '--title', "REFF-$normalizedTag", '--notes', '', '--verify-tag')
         if ($isPrerelease) { $ghArguments += '--prerelease' }
         & gh @ghArguments
         if ($LASTEXITCODE -ne 0) { throw "GitHub Release 发布失败（退出码：$LASTEXITCODE）" }
