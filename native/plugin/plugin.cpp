@@ -45,6 +45,12 @@ using SetCursorPosFunction = BOOL(WINAPI*)(int, int);
 #ifndef REFF_ENABLE_RESIZE_DIAGNOSTICS
 #define REFF_ENABLE_RESIZE_DIAGNOSTICS 0
 #endif
+#ifndef REFF_ENABLE_EXPERIMENTAL_GAMES
+#define REFF_ENABLE_EXPERIMENTAL_GAMES 0
+#endif
+#ifndef REFF_PROJECT_VERSION
+#define REFF_PROJECT_VERSION "unknown"
+#endif
 SetCursorPosFunction original_set_cursor_pos{};
 void** set_cursor_pos_iat{};
 std::atomic_bool iat_installed{};
@@ -127,6 +133,8 @@ struct Runtime {
     std::atomic_bool settings_save_requested{};
     KeyboardCapture keyboard_capture;
     std::atomic_bool viewport_reset_requested{};
+    // 兼容诊断节点可能来自窗口、IPC 和 Present 线程；原子标志保证每类环境摘要只记录一次。
+    std::atomic_bool compatibility_window_logged{}, compatibility_renderer_logged{};
     // 性能日志窗口只由 Present 线程访问；避免每帧写日志，仅按固定间隔输出聚合计数。
     std::uint64_t perf_log_tick{};
     std::uint64_t perf_draw_attempts{};
@@ -144,6 +152,7 @@ struct Runtime {
 Runtime* runtime{};
 std::mutex resize_log_mutex;
 std::uint64_t resize_log_tick{};
+std::mutex compatibility_log_mutex;
 #if defined(REFF_ENABLE_IME_DIAGNOSTICS)
 std::mutex ime_log_mutex;
 #endif
@@ -151,6 +160,29 @@ std::mutex ime_log_mutex;
 // REFF 原生诊断统一写入 data/REFF/log，避免在 reframework 根目录创建自有日志目录。
 std::filesystem::path reff_log_dir(const std::filesystem::path& root) {
     return root / L"data" / L"REFF" / L"log";
+}
+
+// 兼容日志记录低频能力决策，不包含用户按键、文本或游戏对象数据，可由外部测试者直接提供。
+void compatibility_log(const std::string& message) {
+    std::lock_guard lock(compatibility_log_mutex);
+    if (!runtime || runtime->root.empty()) return;
+    try {
+        const auto dir = reff_log_dir(runtime->root);
+        std::filesystem::create_directories(dir);
+        std::ofstream file(dir / L"compatibility.log", std::ios::app);
+        file << GetTickCount64() << " " << message << "\n";
+    } catch (...) { /* 诊断失败不能改变游戏初始化或输入行为。 */ }
+}
+
+// 每次游戏进程初始化都清空上一轮兼容日志，确保目标、构建和生命周期证据属于同一次运行。
+void reset_compatibility_log() {
+    if (!runtime || runtime->root.empty()) return;
+    try {
+        const auto dir = reff_log_dir(runtime->root);
+        std::filesystem::create_directories(dir);
+        std::ofstream file(dir / L"compatibility.log", std::ios::trunc);
+        file << "# REFF compatibility diagnostics v1\n";
+    } catch (...) {}
 }
 
 // 游戏侧 IME 诊断单独写入 reff_ime.log，避免污染 REFramework 主日志和缩放日志。
@@ -182,7 +214,7 @@ void reset_ime_log() {
 #endif
 }
 
-// REFF 专用缩放诊断日志；独立写入 reframework/logs，不占用 REFramework 主日志。
+// REFF 专用缩放诊断日志；独立写入 data/REFF/log，不占用 REFramework 主日志。
 void resize_log(const std::string& message, bool sampled = false) {
 #if REFF_ENABLE_RESIZE_DIAGNOSTICS
     if (!runtime || runtime->root.empty()) return;
@@ -583,8 +615,14 @@ bool ensure_cursor_window(HWND window) {
     // 不再安装 SetWindowSubclass：REFramework 自身已经拥有窗口过程钩子，
     // 叠加子类会改变消息调用链并增加重入风险。光标同步统一经 on_message 处理。
     runtime->game_window = window;
+    if (!runtime->compatibility_window_logged.exchange(true)) {
+        RECT client{}; GetClientRect(window, &client);
+        compatibility_log("window ready thread=" + std::to_string(GetWindowThreadProcessId(window, nullptr)) +
+            " client=" + std::to_string(std::max(0L, client.right - client.left)) + "x" +
+            std::to_string(std::max(0L, client.bottom - client.top)));
+    }
 #if REFF_ENABLE_IME_PROXY
-    runtime->ime.start(window, [](Json value) { runtime->channel.send(std::move(value)); }, [](int key) {
+    if (runtime->game.ime == ImePolicy::proxy) runtime->ime.start(window, [](Json value) { runtime->channel.send(std::move(value)); }, [](int key) {
         const bool matches = runtime->hotkey_key.load(std::memory_order_acquire) == key &&
             runtime->hotkey_modifiers.load(std::memory_order_acquire) == current_hotkey_modifiers();
         if (!runtime->hotkey_capture.load(std::memory_order_acquire) && (matches || key == VK_ESCAPE)) { set_visible(false); return true; }
@@ -720,6 +758,7 @@ void receive(Json value) {
         if (type == "hello") {
             if (value.value("protocol", 0u) != protocol_version || value.value("sessionId", std::string{}) != narrow(runtime->session)) return;
             runtime->connected = true;
+            compatibility_log("host handshake=ok protocol=" + std::to_string(protocol_version));
             // 新宿主从默认视口启动，必须重新发送保留的窗口尺寸与代次。
             runtime->channel.send({{"type", "viewport"}, {"width", runtime->viewport_width.load()},
                 {"height", runtime->viewport_height.load()}, {"generation", runtime->viewport_generation.load()}});
@@ -738,7 +777,7 @@ void receive(Json value) {
                     " x=" + std::to_string(value.value("x", 0)) + " y=" + std::to_string(value.value("y", 0)));
             if (value.value("active", false)) map_ime_bounds(value);
 #if REFF_ENABLE_IME_PROXY
-            runtime->ime.activate(std::move(value));
+            if (runtime->game.ime == ImePolicy::proxy) runtime->ime.activate(std::move(value));
 #endif
             return;
         }
@@ -748,7 +787,7 @@ void receive(Json value) {
                     " y=" + std::to_string(value.value("y", 0)));
             map_ime_bounds(value);
 #if REFF_ENABLE_IME_PROXY
-            runtime->ime.update_bounds(std::move(value));
+            if (runtime->game.ime == ImePolicy::proxy) runtime->ime.update_bounds(std::move(value));
 #endif
             return;
         }
@@ -868,6 +907,7 @@ void service_loop(std::stop_token stop) {
                 health.started(GetTickCount64());
                 hidden_since = std::chrono::steady_clock::now();
                 api->functions->log_info("REFF: browser started");
+                compatibility_log("host process=started");
             } catch (const std::exception& error) {
                 release_host();
                 api->functions->log_error("REFF: %s", error.what());
@@ -1018,6 +1058,9 @@ void on_present() {
         static_cast<IDXGISwapChain*>(renderer->swapchain), static_cast<ID3D12CommandQueue*>(renderer->command_queue))) {
         set_visible(false); api->functions->log_error("REFF: DX12 initialization failed: %s", runtime->renderer.last_error().c_str()); return;
     }
+    if (!runtime->compatibility_renderer_logged.exchange(true)) {
+        compatibility_log("renderer initialized=d3d12 window=" + std::to_string(reinterpret_cast<std::uintptr_t>(runtime->renderer.window())));
+    }
     bool foreground = GetForegroundWindow() == runtime->renderer.window();
 #if REFF_ENABLE_IME_PROXY
     foreground = foreground || runtime->ime.owns_foreground();
@@ -1126,6 +1169,8 @@ void on_present() {
 }
 
 void on_reset() {
+    compatibility_log("renderer reset");
+    runtime->compatibility_renderer_logged = false;
     set_visible(false); std::lock_guard lock(runtime->renderer_mutex); runtime->renderer.reset(); runtime->rendered_frame.reset();
 }
 
@@ -1221,9 +1266,11 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
                         if (detect_raw_keyboard_no_legacy()) {
                             runtime->raw_keyboard_no_legacy.store(true, std::memory_order_release);
                             ime_log("raw_keyboard_no_legacy=1");
+                            compatibility_log("raw_input_keyboard no_legacy=1 translation=enabled");
                         }
                     }
-                    if (runtime->ime.active() && runtime->raw_keyboard_no_legacy.load(std::memory_order_acquire)) {
+                    if (runtime->game.raw_input_keyboard != CapabilityPolicy::disabled &&
+                        runtime->ime.active() && runtime->raw_keyboard_no_legacy.load(std::memory_order_acquire)) {
                         if (const auto translated = translate_raw_keyboard(raw.data.keyboard)) {
                             const auto [key_message, key, native] = *translated;
                             runtime->ime.redirect_input(key_message, key, native);
@@ -1346,13 +1393,27 @@ extern "C" __declspec(dllexport) void reframework_plugin_required_version(REFram
 extern "C" __declspec(dllexport) bool reframework_plugin_initialize(const REFrameworkPluginInitializeParam* param) {
     if (!param || !param->functions || !param->renderer_data || !param->version) return false;
     api = param; runtime = new Runtime;
+    // DLL 路径由当前模块地址解析；在任何兼容拒绝前建立日志根，失败目标同样能留下可诊断原因。
+    HMODULE module{};
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+        reinterpret_cast<LPCWSTR>(&reframework_plugin_initialize), &module);
+    wchar_t path[32768]{}; GetModuleFileNameW(module, path, 32768);
+    runtime->root = std::filesystem::path(path).parent_path().parent_path();
     runtime->game = game_profile_for(param->version->game_name ? param->version->game_name : "");
-    if (!runtime->game.supported) {
-        param->functions->log_error("REFF: unsupported game target: %s", runtime->game.target.c_str());
-        delete runtime; runtime = nullptr; api = nullptr; return false;
-    }
-    if (runtime->game.d3d12_required && param->renderer_data->renderer_type != REFRAMEWORK_RENDERER_D3D12) {
-        param->functions->log_error("REFF: %s currently requires the D3D12 renderer", runtime->game.target.c_str());
+    reset_compatibility_log();
+    constexpr bool experimental_build = REFF_ENABLE_EXPERIMENTAL_GAMES != 0;
+    const auto decision = compatibility_decision(runtime->game,
+        param->renderer_data->renderer_type == REFRAMEWORK_RENDERER_D3D12, experimental_build);
+    compatibility_log("reff_version=" REFF_PROJECT_VERSION " reframework_api=" + std::to_string(param->version->major) + "." +
+        std::to_string(param->version->minor) + "." + std::to_string(param->version->patch));
+    compatibility_log("target=" + runtime->game.target + " status=" + std::string(support_status_name(runtime->game.status)) +
+        " renderer=" + (param->renderer_data->renderer_type == REFRAMEWORK_RENDERER_D3D12 ? "d3d12" : "other") +
+        " experimental_build=" + (experimental_build ? "1" : "0") +
+        " ime_proxy_compiled=" + (REFF_ENABLE_IME_PROXY ? "1" : "0") +
+        " decision=" + std::string(compatibility_decision_name(decision)));
+    if (decision != CompatibilityDecision::allowed) {
+        param->functions->log_error("REFF: game target %s rejected: %s", runtime->game.target.c_str(),
+            compatibility_decision_name(decision).data());
         delete runtime; runtime = nullptr; api = nullptr; return false;
     }
     runtime->cursor_sync_message = RegisterWindowMessageW(L"REFF.CursorSync.v1");
@@ -1372,21 +1433,21 @@ extern "C" __declspec(dllexport) bool reframework_plugin_initialize(const REFram
     // 诊断开关已保留为兼容配置，但不再修改任何 IAT；进程级观察包装曾触发安全快速失败。
     param->functions->log_warn("REFF: cursor diagnostics disabled for safety; no process-wide IAT is modified");
 #endif
-    HMODULE module{};
-    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
-        reinterpret_cast<LPCWSTR>(&reframework_plugin_initialize), &module);
-    wchar_t path[32768]{}; GetModuleFileNameW(module, path, 32768);
-    runtime->root = std::filesystem::path(path).parent_path().parent_path();
     reset_ime_log();
     std::string settings_warning;
     runtime->settings.open(runtime->root / L"data" / L"REFF" / L"settings.json", settings_warning);
     apply_runtime_settings(runtime->settings.snapshot());
     if (!settings_warning.empty()) param->functions->log_warn("REFF: settings fallback to defaults: %s", settings_warning.c_str());
-    if (runtime->game.direct_input_keyboard) {
-        if (runtime->keyboard_capture.install()) param->functions->log_info("REFF: DirectInput keyboard capture installed");
-        else param->functions->log_warn("REFF: DirectInput keyboard capture unavailable; Win32 keyboard filtering remains active");
+    if (should_install_direct_input(runtime->game)) {
+        if (runtime->keyboard_capture.install()) {
+            param->functions->log_info("REFF: DirectInput keyboard capture installed");
+            compatibility_log("direct_input_keyboard=installed");
+        } else {
+            param->functions->log_warn("REFF: DirectInput keyboard capture unavailable; Win32 keyboard filtering remains active");
+            compatibility_log("direct_input_keyboard=unavailable fallback=win32");
+        }
         refresh_keyboard_capture();
-    }
+    } else compatibility_log("direct_input_keyboard=disabled");
 #if REFF_ENABLE_PERF_DIAGNOSTICS
     runtime->perf_present_intervals_us.reserve(4096);
 #endif
@@ -1397,6 +1458,7 @@ extern "C" __declspec(dllexport) bool reframework_plugin_initialize(const REFram
     param->functions->on_device_reset(on_reset);
     param->functions->on_message(on_message);
     runtime->service = std::jthread(service_loop);
+    compatibility_log("initialization=complete");
     param->functions->log_info("REFF initialized for %s. The configured hotkey opens/closes the local web panel.", runtime->game.target.c_str());
     return true;
 }

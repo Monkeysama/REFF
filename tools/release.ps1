@@ -5,8 +5,6 @@
     [switch]$Publish,
     # 使用已有构建产物时跳过构建步骤，仍会重新生成 staging、压缩包和校验文件。
     [switch]$SkipBuild,
-    # 覆盖自动发现的发布说明文件。
-    [string]$NotesFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,13 +61,15 @@ if ($releaseVersion -notmatch "^$([regex]::Escape($projectVersion))(?:-|$)") {
 New-Item -ItemType Directory -Force -Path $artifactsRoot | Out-Null
 $runtimeZip = Join-Path $artifactsRoot "REFF-$releaseVersion.zip"
 $examplesZip = Join-Path $artifactsRoot "REFF-$releaseVersion-examples.zip"
+$experimentalZip = Join-Path $artifactsRoot "REFF-$releaseVersion-modern-experimental.zip"
 $examplesStageRoot = Join-Path $repoRoot 'staging\examples\reframework'
 $runtimeHash = "$runtimeZip.sha256"
 $examplesHash = "$examplesZip.sha256"
+$experimentalHash = "$experimentalZip.sha256"
 
 if (-not $SkipBuild) {
     # 构建前删除同版本旧资产，防止中途失败后继续使用上一轮压缩包。
-    foreach ($oldAsset in @($runtimeZip, $examplesZip, $runtimeHash, $examplesHash)) {
+    foreach ($oldAsset in @($runtimeZip, $examplesZip, $experimentalZip, $runtimeHash, $examplesHash, $experimentalHash)) {
         if (Test-Path -LiteralPath $oldAsset) { Remove-Item -LiteralPath $oldAsset -Force }
     }
     # 示例 Web 资源和 GameTest 原生构建使用透明 IME 代理，先生成开发示例包。
@@ -204,7 +204,7 @@ if (-not $notesPath) {
 }
 if (-not $notesPath) {
     $notesPath = Join-Path $artifactsRoot "release-notes-$releaseVersion.zh-CN.md"
-    @("# REFramework Frontend $releaseVersion", '', '本版本提供 REFF 正式 Runtime 包及可叠加安装的示例插件增量包。', '', '支持范围：Monster Hunter Wilds（已验证）、Monster Hunter Rise / D3D12（实验支持）。') |
+    @("# REFramework Frontend $releaseVersion", '', '本版本提供 REFF 正式 Runtime 包及可叠加安装的示例插件增量包。', '', '支持范围：Monster Hunter Wilds 与 Monster Hunter Rise（已验证，Windows x64 / D3D12 / 键鼠）。') |
         Set-Content -LiteralPath $notesPath -Encoding utf8
 }
 if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) { throw "发布说明不存在：$notesPath" }

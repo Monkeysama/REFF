@@ -18,13 +18,51 @@ int main() {
         ++checks; if (!passed) throw std::runtime_error(name);
     };
     try {
-        // 游戏适配表只开放已验证目标；大小写由 REFramework 目标名归一化，未知游戏保持安全关闭。
+        // 游戏目录区分已验证、实验和未知目标；实验开关只允许实验状态，不能放开未知目标。
         const auto wilds = reff::game_profile_for("mhwilds");
         const auto rise = reff::game_profile_for("MHRISE");
-        const auto unknown = reff::game_profile_for("RE4");
-        require(wilds.supported && wilds.target == "MHWILDS" && wilds.direct_input_keyboard, "Wilds profile");
-        require(rise.supported && rise.target == "MHRISE" && rise.executable == "MonsterHunterRise.exe", "Rise profile");
-        require(!unknown.supported && !unknown.direct_input_keyboard, "unknown game profile closed");
+        const auto re4 = reff::game_profile_for("re4");
+        const auto re8 = reff::game_profile_for("RE8");
+        const auto dd2 = reff::game_profile_for("DD2");
+        const auto sf6 = reff::game_profile_for("SF6");
+        const auto unknown = reff::game_profile_for("UNKNOWN_GAME");
+        require(wilds.known && wilds.target == "MHWILDS" && wilds.status == reff::SupportStatus::verified &&
+            reff::should_install_direct_input(wilds), "Wilds profile");
+        require(rise.known && rise.target == "MHRISE" && rise.executable == "MonsterHunterRise.exe" &&
+            rise.ime == reff::ImePolicy::proxy, "Rise profile");
+        require(re4.known && re4.status == reff::SupportStatus::verified && re4.executable == "re4.exe" &&
+            !reff::should_install_direct_input(re4), "RE4 verified profile keeps tested input policy");
+        require(reff::compatibility_decision(re4, true, false) == reff::CompatibilityDecision::allowed,
+            "release build accepts verified RE4 D3D12");
+        require(re8.known && re8.status == reff::SupportStatus::experimental && re8.executable == "re8.exe",
+            "RE8 experimental profile");
+        require(reff::compatibility_decision(re8, true, false) == reff::CompatibilityDecision::experimental_disabled,
+            "release build rejects RE8 experimental profile");
+        require(reff::compatibility_decision(re8, true, true) == reff::CompatibilityDecision::allowed,
+            "experimental build accepts RE8 D3D12");
+        require(reff::compatibility_decision(re8, false, true) == reff::CompatibilityDecision::renderer_mismatch,
+            "experimental profile still requires D3D12");
+        require(dd2.known && dd2.status == reff::SupportStatus::experimental && dd2.executable == "dd2.exe" &&
+            reff::compatibility_decision(dd2, true, true) == reff::CompatibilityDecision::allowed,
+            "DD2 experimental profile");
+        require(sf6.known && sf6.status == reff::SupportStatus::experimental && sf6.executable == "StreetFighter6.exe" &&
+            reff::compatibility_decision(sf6, true, true) == reff::CompatibilityDecision::allowed,
+            "SF6 experimental profile");
+        for (const auto* target : {"RE2", "RE3", "RE7", "RE9", "DRDR", "GGR", "GS456", "KUNITSU", "ONIMUSHA2", "MHSTORIES3", "STARFORCE", "PRAGMATA", "ONIMUSHA_WOTS"}) {
+            const auto profile = reff::game_profile_for(target);
+            require(profile.known && profile.status == reff::SupportStatus::experimental &&
+                reff::compatibility_decision(profile, true, true) == reff::CompatibilityDecision::allowed,
+                "catalogued experimental D3D12 profile");
+        }
+        require(!unknown.known && !reff::should_install_direct_input(unknown) &&
+            reff::compatibility_decision(unknown, true, true) == reff::CompatibilityDecision::unknown_target,
+            "unknown game profile remains closed");
+        auto recognized = re8; recognized.status = reff::SupportStatus::recognized;
+        auto disabled = re8; disabled.status = reff::SupportStatus::disabled;
+        require(reff::compatibility_decision(recognized, true, true) == reff::CompatibilityDecision::recognized_only,
+            "recognized profile cannot initialize");
+        require(reff::compatibility_decision(disabled, true, true) == reff::CompatibilityDecision::disabled,
+            "disabled profile cannot initialize");
         require(reff::starts_new_ime_session({}, "embedded:example.vue:text", true), "new IME session primes CEF focus");
         require(!reff::starts_new_ime_session("embedded:example.vue:text", "embedded:example.vue:text", true), "repeat IME report preserves proxy focus");
         require(!reff::starts_new_ime_session("embedded:example.vue:text", "embedded:example.vue:text", false), "IME deactivation does not prime focus");

@@ -3,19 +3,22 @@ $ErrorActionPreference = 'Stop'
 # 开发机覆盖模式由环境变量启用；部署完成后始终重建清单。
 $Force = $env:REFF_FORCE_DEPLOY -eq '1'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'game-catalog.ps1')
 $stageRoot = Join-Path $repoRoot 'staging\reframework'
 $targetRoot = [IO.Path]::GetFullPath($ReframeworkRoot).TrimEnd('\')
 
 # 只向带 REFramework 的已支持游戏部署；允许首次安装时创建 reframework 目录，但不创建或替换 dinput8.dll。
 $gameRoot = Split-Path $targetRoot -Parent
-$supportedGames = @{
-    'MonsterHunterWilds.exe' = 'MonsterHunterWilds'
-    'MonsterHunterRise.exe' = 'MonsterHunterRise'
-}
 if ((Split-Path $targetRoot -Leaf) -ne 'reframework' -or -not (Test-Path -LiteralPath $gameRoot -PathType Container)) { throw '目标必须是游戏目录下的 reframework 目录' }
-$gameEntry = $supportedGames.GetEnumerator() | Where-Object { Test-Path -LiteralPath (Join-Path $gameRoot $_.Key) } | Select-Object -First 1
+$gameEntry = Find-REFFGame $repoRoot $gameRoot @('verified', 'experimental')
 if (-not $gameEntry -or -not (Test-Path -LiteralPath (Join-Path $gameRoot 'dinput8.dll') -PathType Leaf)) { throw '目标目录不是已支持且已安装 REFramework 的游戏' }
-if (Get-Process -Name $gameEntry.Value -ErrorAction SilentlyContinue) { throw "请先退出 $($gameEntry.Value)，再部署原生插件。" }
+$buildProfilePath = Join-Path $repoRoot 'staging\build-profile.json'
+if (-not (Test-Path -LiteralPath $buildProfilePath -PathType Leaf)) { throw 'staging 缺少构建能力元数据，请重新运行 tools\stage.ps1。' }
+$buildProfile = Get-Content -LiteralPath $buildProfilePath -Raw | ConvertFrom-Json
+if (-not (Test-REFFGameDeploymentAllowed $gameEntry.status ([bool]$buildProfile.experimentalGames))) {
+    throw "$($gameEntry.name) 不允许使用当前 staging 构建部署；实验游戏必须显式启用实验构建。"
+}
+if (Get-Process -Name $gameEntry.processName -ErrorAction SilentlyContinue) { throw "请先退出 $($gameEntry.name)，再部署原生插件。" }
 New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
 $manifestJson = Get-Content -LiteralPath (Join-Path $repoRoot 'staging\manifest.json') -Raw | ConvertFrom-Json
 # Windows PowerShell 5.1 会把 ConvertFrom-Json 的顶层数组作为单个管道对象返回；foreach 显式展开后再进入部署循环。

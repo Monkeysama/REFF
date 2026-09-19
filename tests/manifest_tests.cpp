@@ -24,6 +24,16 @@ int main(int argc, char** argv) {
         auto rise_manifests = reff::scan_manifests(argv[1], rise_errors, "MHRISE");
         if (rise_manifests.size() != 1 || rise_manifests[0].id != "example.settings" || rise_errors.size() != 1)
             throw std::runtime_error("game filtering or wildcard mismatch");
+        std::vector<std::string> re4_errors;
+        auto re4_manifests = reff::scan_manifests(argv[1], re4_errors, "RE4");
+        if (re4_manifests.size() != 1 || re4_manifests[0].id != "example.settings" || re4_errors.size() != 1)
+            throw std::runtime_error("experimental game manifest filtering mismatch");
+        for (const auto* target : {"RE8", "DD2", "SF6", "RE2", "RE3", "RE7", "RE9", "DRDR", "GGR", "GS456", "KUNITSU", "ONIMUSHA2", "MHSTORIES3", "STARFORCE", "PRAGMATA", "ONIMUSHA_WOTS"}) {
+            std::vector<std::string> experimental_errors;
+            auto experimental_manifests = reff::scan_manifests(argv[1], experimental_errors, target);
+            if (experimental_manifests.size() != 1 || experimental_manifests[0].id != "example.settings" || experimental_errors.size() != 1)
+                throw std::runtime_error("experimental game manifest filtering mismatch");
+        }
 
         reff::SessionGate gate;
         auto epoch = gate.open(); gate.set_connected(true);

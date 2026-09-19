@@ -9,6 +9,8 @@
 )
 # 本脚本保存为 UTF-8 BOM，兼容 Windows PowerShell 5.1；JSONL 显式按 UTF-8 读写。
 $ErrorActionPreference = 'Stop'
+$repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'game-catalog.ps1')
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path (Split-Path $PSScriptRoot -Parent) 'artifacts\resource-observation' }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
@@ -60,10 +62,11 @@ if ($Mode -eq 'Report') {
 # 目标进程从 reframework 父目录的已支持游戏识别；无游戏运行时保留空样本。
 $runtimeDirectory = [IO.Path]::GetFullPath((Join-Path $ReframeworkRoot 'reff\runtime')).TrimEnd('\') + '\'
 $gameRoot = Split-Path $ReframeworkRoot -Parent
-$gameFile = @('MonsterHunterWilds.exe', 'MonsterHunterRise.exe') | Where-Object { Test-Path -LiteralPath (Join-Path $gameRoot $_) } | Select-Object -First 1
-if (-not $gameFile) { throw '无法从目标 reframework 目录识别已支持游戏。' }
-$gameExecutable = [IO.Path]::GetFullPath((Join-Path $gameRoot $gameFile))
-$gameProcessName = [IO.Path]::GetFileNameWithoutExtension($gameFile)
+$gameEntry = Find-REFFGame $repoRoot $gameRoot @('verified', 'experimental')
+if (-not $gameEntry) { throw '无法从目标 reframework 目录识别已支持游戏。' }
+$gameFile = $gameEntry.executable
+$gameExecutable = $gameEntry.executablePath
+$gameProcessName = $gameEntry.processName
 $previous = @{}
 $runId = [Guid]::NewGuid().ToString()
 $watch = [Diagnostics.Stopwatch]::StartNew()

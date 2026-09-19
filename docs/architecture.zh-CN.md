@@ -2,7 +2,7 @@
 
 本文描述 REFF 的运行时架构、线程边界、资源所有权和插件页面模型。
 
-当前 Shell 采用左侧插件列表、右侧页面容器。`reff.settings` 是唯一固定的 Core 系统项并始终排在第一位，其余页面完全来自动态 manifest。右侧客户区会填满 REFF 窗口分配的可用尺寸；Shell 只保留统一标题栏，插件页面获得其下方的完整内容视口，不能使用固定最大宽度假定窗口尺寸。manifest 通过 `ui.mode` 选择 `component` 或 `isolated-page`：前者由 Shell 的通用 Schema 渲染器承载，后者使用受控 iframe 页面。Shell 不持有第三方插件业务状态。身份由宿主绑定真实页面代次，切页前清理旧订阅。插件资源根固定到 manifest 所在目录，方法和事件由 manifest 与 Lua 注册表共同授权。W1/W2 的原生 Present 线程维护可移动、可缩放客户区矩形，CEF 视口与共享帧按最新尺寸调度。后续顺序以[评审计划](next-development-plan.zh-CN.md)为准。
+当前 Shell 采用左侧插件列表、右侧页面容器。`reff.settings` 是唯一固定的 Core 系统项并始终排在第一位，其余页面完全来自动态 manifest。右侧客户区会填满 REFF 窗口分配的可用尺寸；Shell 只保留统一标题栏，插件页面获得其下方的完整内容视口，不能使用固定最大宽度假定窗口尺寸。manifest 通过 `ui.mode` 选择 `component` 或 `isolated-page`：前者由 Shell 的通用 Schema 渲染器承载，后者使用受控 iframe 页面。Shell 不持有第三方插件业务状态。身份由宿主绑定真实页面代次，切页前清理旧订阅。插件资源根固定到 manifest 所在目录，方法和事件由 manifest 与 Lua 注册表共同授权。原生 Present 线程维护可移动、可缩放客户区矩形，CEF 视口与共享帧按最新尺寸调度。
 
 ## 1. 进程与模块
 
@@ -136,7 +136,7 @@ reframework/
   reff/ui/                       Shell 与公共前端资源
   reff/runtime/                  CEF 运行依赖
   reff/plugins/<plugin-id>/      manifest 与插件网页资源
-  reff/logs/                     有上限的诊断日志
+  data/REFF/log/                 REFF 专用诊断日志
 ```
 
 CEF 私有依赖通过经过验证的 DLL 搜索/启动方式加载，不修改系统 PATH，不全局改变游戏进程 DLL 搜索策略。分包布局需要通过干净环境的启动验证，不能仅在开发机上验证。

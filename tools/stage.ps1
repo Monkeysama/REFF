@@ -1,17 +1,20 @@
 ﻿param(
     [string]$BuildRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) 'build'),
-    [switch]$IncludeExamples
+    [switch]$IncludeExamples,
+    [string]$StagingRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) 'staging')
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$stageRoot = Join-Path $repoRoot 'staging\reframework'
+$StagingRoot = [IO.Path]::GetFullPath($StagingRoot)
+$stageRoot = Join-Path $StagingRoot 'reframework'
 $runtimeRoot = Join-Path $stageRoot 'reff\runtime'
 $cefRoot = Join-Path $repoRoot '.deps\cef'
+$cachePath = Join-Path $BuildRoot 'CMakeCache.txt'
+if (-not (Test-Path -LiteralPath $cachePath -PathType Leaf)) { throw "构建目录缺少 CMakeCache：$cachePath" }
+$experimentalGames = Select-String -LiteralPath $cachePath -Pattern '^REFF_ENABLE_EXPERIMENTAL_GAMES:BOOL=ON$' -Quiet
 
 # 开发示例包含中文输入回归入口，禁止用未编译透明 IME 代理的默认 DLL 生成游戏测试包。
 if ($IncludeExamples) {
-    $cachePath = Join-Path $BuildRoot 'CMakeCache.txt'
-    if (-not (Test-Path -LiteralPath $cachePath -PathType Leaf)) { throw "示例构建缺少 CMakeCache：$cachePath" }
     $imeEnabled = Select-String -LiteralPath $cachePath -Pattern '^REFF_ENABLE_IME_PROXY:BOOL=ON$' -Quiet
     if (-not $imeEnabled) { throw '示例游戏构建必须使用 tools\build.ps1 -Profile GameTest，再以 -BuildRoot build-ime 生成 staging。' }
 }
@@ -96,7 +99,10 @@ if ($LASTEXITCODE -ne 0) { throw 'CEF Runtime 沙箱读取权限设置失败' }
 $manifest = @(Get-ChildItem -LiteralPath $stageRoot -File -Recurse | ForEach-Object {
     [pscustomobject]@{ path = (Get-REFFRelativePath $stageRoot $_.FullName).Replace('\','/'); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); bytes = $_.Length }
 })
-$manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $repoRoot 'staging\manifest.json') -Encoding utf8
+$manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $StagingRoot 'manifest.json') -Encoding utf8
+# 构建能力元数据只供本地部署脚本校验，不进入 reframework 安装目录或发布清单。
+[pscustomobject]@{ schemaVersion = 1; experimentalGames = [bool]$experimentalGames; buildRoot = [IO.Path]::GetFullPath($BuildRoot) } |
+    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $StagingRoot 'build-profile.json') -Encoding utf8
 $profile = if ($IncludeExamples) { '开发示例' } else { '正式 Runtime' }
 Write-Host "Staging 已准备：$stageRoot（$profile）"
 Write-Host "文件数：$($manifest.Count)，合计字节：$(($manifest | Measure-Object -Property bytes -Sum).Sum)"

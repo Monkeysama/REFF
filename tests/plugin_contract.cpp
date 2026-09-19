@@ -6,6 +6,7 @@
 #include <cstdarg>
 #include <atomic>
 #include <cstring>
+#include <string_view>
 
 namespace {
 lua_State* state{};
@@ -44,6 +45,16 @@ void log_message(const char* format, ...) {
 }
 bool is_drawing_ui() { return false; }
 
+// REFramework target_name 是受控 ASCII 标识；测试显式校验后转换，避免宽字符静默截断。
+std::string narrow_target(std::wstring_view value) {
+    std::string result; result.reserve(value.size());
+    for (const wchar_t character : value) {
+        if (character < 0 || character > 0x7f) throw std::runtime_error("target name must be ASCII");
+        result.push_back(static_cast<char>(character));
+    }
+    return result;
+}
+
 // 检查真实 DLL 装入 Lua 的函数，不把重复的测试实现当成被测对象。
 void check_script(const char* code) {
     if (luaL_dostring(state, code)) throw std::runtime_error(lua_tostring(state, -1));
@@ -51,8 +62,11 @@ void check_script(const char* code) {
 }
 
 int wmain(int argc, wchar_t** argv) {
-    if (argc != 2) return 2;
+    if (argc < 2 || argc > 4) return 2;
     try {
+        const std::wstring target_wide = argc >= 3 ? argv[2] : L"MHRISE";
+        const std::string target = narrow_target(target_wide);
+        const bool expect_initialization = argc < 4 || std::wstring(argv[3]) != L"reject";
         state = luaL_newstate(); luaL_openlibs(state);
         HMODULE plugin = LoadLibraryW(argv[1]); if (!plugin) throw std::runtime_error("DLL load failed");
         auto version = reinterpret_cast<REFPluginRequiredVersionFn>(GetProcAddress(plugin, "reframework_plugin_required_version"));
@@ -66,9 +80,16 @@ int wmain(int argc, wchar_t** argv) {
         functions.lock_lua = lock_lua; functions.unlock_lua = unlock_lua;
         functions.log_info = functions.log_warn = functions.log_error = log_message; functions.is_drawing_ui = is_drawing_ui;
         REFrameworkRendererData renderer{}; renderer.renderer_type = REFRAMEWORK_RENDERER_D3D12;
-        REFrameworkPluginVersion installed{1, 15, 0, "MHRISE"};
+        REFrameworkPluginVersion installed{1, 15, 0, target.c_str()};
         REFrameworkPluginInitializeParam param{}; param.functions = &functions; param.renderer_data = &renderer; param.version = &installed;
-        if (!initialize(&param) || !created || !destroyed || !present || !reset || !message || lock_depth) throw std::runtime_error("callback initialization failed");
+        const bool initialized = initialize(&param);
+        if (!expect_initialization) {
+            if (initialized || created || destroyed || present || reset || message) throw std::runtime_error("rejected target installed callbacks");
+            lua_close(state);
+            std::cout << "Actual REFF.dll rejected target before callback installation\n";
+            return 0;
+        }
+        if (!initialized || !created || !destroyed || !present || !reset || !message || lock_depth) throw std::runtime_error("callback initialization failed");
         check_script("assert(type(reff_native.poll)=='function'); reff_native.set_ready(true); assert(reff_native.poll()==nil); assert(not reff_native.is_visible())");
         // 验证自有消息与普通消息都沿 REFramework 的窗口过程继续转发。
         cursor_message = RegisterWindowMessageW(L"REFF.CursorSync.v1");
