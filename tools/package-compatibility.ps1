@@ -55,7 +55,11 @@ Copy-Item -LiteralPath $stageRoot -Destination $workParent -Recurse -Force
 $compatibilityRoot = Join-Path $packageRoot 'reff\compatibility'
 $toolsRoot = Join-Path $packageRoot 'reff\tools'
 New-Item -ItemType Directory -Force -Path $compatibilityRoot, $toolsRoot | Out-Null
-Copy-Item -LiteralPath (Join-Path $repoRoot 'docs\compatibility-testing.zh-CN.md') -Destination (Join-Path $compatibilityRoot 'README.zh-CN.md')
+$compatibilityGuide = Join-Path $repoRoot 'docs\compatibility.zh-CN.md'
+if (-not (Test-Path -LiteralPath $compatibilityGuide -PathType Leaf)) {
+    throw "缺少实验兼容性说明文档：$compatibilityGuide"
+}
+Copy-Item -LiteralPath $compatibilityGuide -Destination (Join-Path $compatibilityRoot 'README.zh-CN.md')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'collect-installed-compatibility.ps1') -Destination $toolsRoot
 [ordered]@{
     schemaVersion = 1
