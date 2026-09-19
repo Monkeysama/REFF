@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, shallowRef } from 'vue';
 import { ElMessage, REFF_UI_VERSION } from '@reff/ui';
-import { createEmbeddedTransport, createReffClient, installDevReload } from '@reff-sdk/index';
+import { createEmbeddedTransport, createReffClient, installDevReload, installInputFocusReporter } from '@reff-sdk/index';
+import ImeTestCard from './ImeTestCard.vue';
 
 interface Snapshot { gameName: string; reframeworkVersion: string; hp: { available: boolean; current?: number; max?: number; percent?: number; adjustable: boolean }; uptimeSeconds: number; refreshCount: number; }
 const reff = createReffClient(createEmbeddedTransport());
 const stopDevReload = installDevReload(reff);
+const removeInputFocusReporter = installInputFocusReporter(reff);
 const snapshot = shallowRef<Snapshot | null>(null);
 const ready = shallowRef(false);
 const hpPercent = shallowRef(100);
 const hpInitialized = shallowRef(false);
+const inputText = shallowRef('');
 let refreshTimer: number | undefined;
 let requestInFlight = false;
 
@@ -52,7 +55,7 @@ onMounted(async () => {
     reportReady();
   } catch (error) { ElMessage.error(String(error)); }
 });
-onBeforeUnmount(() => { if (refreshTimer !== undefined) window.clearInterval(refreshTimer); stopDevReload(); reff.dispose(); });
+onBeforeUnmount(() => { if (refreshTimer !== undefined) window.clearInterval(refreshTimer); removeInputFocusReporter(); stopDevReload(); reff.dispose(); });
 </script>
 
 <template>
@@ -66,7 +69,8 @@ onBeforeUnmount(() => { if (refreshTimer !== undefined) window.clearInterval(ref
       </el-descriptions>
       <el-button type="primary" :disabled="!ready" @click="refresh">调用 REFF 刷新</el-button>
     </el-card>
-    <el-card shadow="never" header="玩家血量" class="hp-card">
+    <ImeTestCard v-model="inputText" />
+    <el-card shadow="never" header="玩家血量" class="section-card">
       <template v-if="snapshot?.hp.available">
         <div class="hp-value">当前：{{ snapshot.hp.current?.toFixed(0) }} / {{ snapshot.hp.max?.toFixed(0) }}（{{ snapshot.hp.percent?.toFixed(1) }}%）</div>
         <div class="hp-control">

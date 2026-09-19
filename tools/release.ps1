@@ -204,7 +204,7 @@ if (-not $notesPath) {
 }
 if (-not $notesPath) {
     $notesPath = Join-Path $artifactsRoot "release-notes-$releaseVersion.zh-CN.md"
-    @("# REFramework Frontend $releaseVersion", '', '本版本提供 REFF 正式 Runtime 包及可叠加安装的示例插件增量包。', '', '支持范围：Monster Hunter Wilds。') |
+    @("# REFramework Frontend $releaseVersion", '', '本版本提供 REFF 正式 Runtime 包及可叠加安装的示例插件增量包。', '', '支持范围：Monster Hunter Wilds（已验证）、Monster Hunter Rise / D3D12（实验支持）。') |
         Set-Content -LiteralPath $notesPath -Encoding utf8
 }
 if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) { throw "发布说明不存在：$notesPath" }

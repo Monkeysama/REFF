@@ -34,7 +34,7 @@ std::optional<PluginManifest> load_manifest(const std::filesystem::path& file, s
 // 扫描插件目录并按 ID 去重；失败清单被跳过并由调用者记录诊断，不阻断核心 UI。
 std::vector<PluginManifest> scan_manifests(const std::filesystem::path& directory,
                                            std::vector<std::string>& errors,
-                                           std::string_view game = "MHWILDS");
+                                           std::string_view game);
 
 // 将经过校验的清单转换成前端可见的最小摘要，避免页面取得本地绝对路径。
 Json manifest_summary(const PluginManifest& manifest);

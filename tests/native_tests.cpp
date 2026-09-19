@@ -5,6 +5,8 @@
 #include "../native/plugin/mouse_click.hpp"
 #include "../native/plugin/settings.hpp"
 #include "../native/plugin/keyboard_capture.hpp"
+#include "../native/plugin/game_profile.hpp"
+#include "ime_session.hpp"
 #include <iostream>
 #include <cstring>
 #include <filesystem>
@@ -16,6 +18,16 @@ int main() {
         ++checks; if (!passed) throw std::runtime_error(name);
     };
     try {
+        // 游戏适配表只开放已验证目标；大小写由 REFramework 目标名归一化，未知游戏保持安全关闭。
+        const auto wilds = reff::game_profile_for("mhwilds");
+        const auto rise = reff::game_profile_for("MHRISE");
+        const auto unknown = reff::game_profile_for("RE4");
+        require(wilds.supported && wilds.target == "MHWILDS" && wilds.direct_input_keyboard, "Wilds profile");
+        require(rise.supported && rise.target == "MHRISE" && rise.executable == "MonsterHunterRise.exe", "Rise profile");
+        require(!unknown.supported && !unknown.direct_input_keyboard, "unknown game profile closed");
+        require(reff::starts_new_ime_session({}, "embedded:example.vue:text", true), "new IME session primes CEF focus");
+        require(!reff::starts_new_ime_session("embedded:example.vue:text", "embedded:example.vue:text", true), "repeat IME report preserves proxy focus");
+        require(!reff::starts_new_ime_session("embedded:example.vue:text", "embedded:example.vue:text", false), "IME deactivation does not prime focus");
         // 用可控时钟覆盖无握手、正常连接、断管和退出，避免依赖 15 秒真实等待。
         reff::HostHealth health;
         health.started(100);

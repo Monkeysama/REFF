@@ -57,9 +57,13 @@ if ($Mode -eq 'Report') {
 }
 
 # PID 与启动时间共同识别进程，避免重启或 PID 复用产生错误 CPU 差分。
-# 仅观察指定游戏路径及 REFF Runtime 内的进程；无游戏运行时保留空样本。
+# 目标进程从 reframework 父目录的已支持游戏识别；无游戏运行时保留空样本。
 $runtimeDirectory = [IO.Path]::GetFullPath((Join-Path $ReframeworkRoot 'reff\runtime')).TrimEnd('\') + '\'
-$gameExecutable = [IO.Path]::GetFullPath((Join-Path (Split-Path $ReframeworkRoot -Parent) 'MonsterHunterWilds.exe'))
+$gameRoot = Split-Path $ReframeworkRoot -Parent
+$gameFile = @('MonsterHunterWilds.exe', 'MonsterHunterRise.exe') | Where-Object { Test-Path -LiteralPath (Join-Path $gameRoot $_) } | Select-Object -First 1
+if (-not $gameFile) { throw '无法从目标 reframework 目录识别已支持游戏。' }
+$gameExecutable = [IO.Path]::GetFullPath((Join-Path $gameRoot $gameFile))
+$gameProcessName = [IO.Path]::GetFileNameWithoutExtension($gameFile)
 $previous = @{}
 $runId = [Guid]::NewGuid().ToString()
 $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -69,7 +73,7 @@ while ($watch.Elapsed.TotalSeconds -lt $DurationSeconds) {
     $now = [DateTime]::UtcNow
     $rows = @()
     $errors = @()
-    $candidates = @(Get-CimInstance Win32_Process -Filter "Name = 'MonsterHunterWilds.exe' OR Name = 'reff-host.exe'")
+    $candidates = @(Get-CimInstance Win32_Process -Filter "Name = '$gameFile' OR Name = 'reff-host.exe'")
     foreach ($candidate in $candidates) {
         $path = [string]$candidate.ExecutablePath
         if (-not $path) { $errors += "无法读取进程路径：$($candidate.ProcessId)"; continue }

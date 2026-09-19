@@ -16,9 +16,14 @@ REFF 是 REFramework 的扩展，不替换或修改 REFramework 原有菜单和�
 
 ## 支持范围
 
-当前版本保证支持以下游戏：
+当前兼容状态：
 
-- Monster Hunter Wilds
+| 游戏 | REFramework 目标名 | 图形接口 | 状态 |
+| --- | --- | --- | --- |
+| Monster Hunter Wilds | `MHWILDS` | D3D12 | 已验证 |
+| Monster Hunter Rise | `MHRISE` | D3D12 | 实验支持，等待完整游戏内验收 |
+
+同一个 Runtime 包用于以上游戏。D3D11 后端尚未实现；未列出的游戏会在安装游戏专用 Hook 前停止初始化。详细范围见[游戏兼容性](docs/compatibility.zh-CN.md)。
 
 ## 安装
 
@@ -83,7 +88,7 @@ reframework/data/REFF/log/          REFF 专用诊断日志
 
 推送形如 `v0.1.0-preview7` 的标签也会由 GitHub Actions 自动构建并发布 Release。标签的基础版本必须与根目录 `version.json` 一致；示例包仅用于开发和回归测试。
 
-构建完成后，将 `staging/reframework` 合并到游戏目录。部署原生文件前必须退出游戏；项目提供的部署脚本会检查进程状态并进行逐文件哈希校验。
+构建完成后，将 `staging/reframework` 合并到游戏目录。部署原生文件前必须退出目标游戏；项目提供的部署脚本会根据目标目录识别 Wilds 或 Rise 进程，并进行逐文件哈希校验。
 
 更多内容见：[运行时架构](docs/architecture.zh-CN.md)、[版本规则](docs/versioning.zh-CN.md) 和 [内置设置与持久化](docs/settings.zh-CN.md)。
 
@@ -101,6 +106,7 @@ reframework/data/REFF/log/          REFF 专用诊断日志
 - [插件与桥接契约](docs/plugin-contract.zh-CN.md)
 - [运行时架构](docs/architecture.zh-CN.md)
 - [内置设置与持久化](docs/settings.zh-CN.md)
+- [游戏兼容性](docs/compatibility.zh-CN.md)
 - [开发者预览说明](docs/developer-preview-0.1.0.zh-CN.md)
 - [发布说明](docs/release-notes-0.1.0-preview6.zh-CN.md)
 

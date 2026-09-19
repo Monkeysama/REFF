@@ -271,7 +271,7 @@ async function onEmbeddedMessage(event: MessageEvent) {
     if (!isCurrent()) return;
     const source = params as Record<string, unknown>;
     const input: Record<string, unknown> = { active: source.active };
-    for (const key of ['inputId', 'text', 'selectionStart', 'selectionEnd', 'x', 'y', 'width', 'height', 'viewportWidth', 'viewportHeight']) {
+    for (const key of ['inputId', 'text', 'selectionStart', 'selectionEnd', 'x', 'y', 'width', 'height', 'fontSize', 'viewportWidth', 'viewportHeight']) {
       if (key in source) input[key] = source[key];
     }
     input.inputId = `embedded:${plugin.id}:${String(input.inputId || 'reff-input')}`;
@@ -281,10 +281,13 @@ async function onEmbeddedMessage(event: MessageEvent) {
       const viewportHeight = Math.max(1, Number(input.viewportHeight) || frame.clientHeight || 1);
       const x = Math.max(0, Math.min(viewportWidth - 1, Number(input.x) || 0));
       const y = Math.max(0, Math.min(viewportHeight - 1, Number(input.y) || 0));
-      input.x = Math.round(rect.left + x * frame.clientWidth / viewportWidth);
-      input.y = Math.round(rect.top + y * frame.clientHeight / viewportHeight);
-      input.width = Math.max(1, Math.round(Number(input.width) || 1));
-      input.height = Math.max(1, Math.round(Number(input.height) || 1));
+      const scaleX = rect.width / viewportWidth;
+      const scaleY = rect.height / viewportHeight;
+      input.x = Math.round(rect.left + x * scaleX);
+      input.y = Math.round(rect.top + y * scaleY);
+      input.width = Math.max(1, Math.round((Number(input.width) || 1) * scaleX));
+      input.height = Math.max(1, Math.round((Number(input.height) || 1) * scaleY));
+      if (input.fontSize !== undefined) input.fontSize = Math.max(1, Math.round((Number(input.fontSize) || 16) * scaleY));
     }
     delete input.viewportWidth;
     delete input.viewportHeight;

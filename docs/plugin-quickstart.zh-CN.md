@@ -13,7 +13,7 @@
   "name": "我的 REFF 插件",
   "version": "0.1.0",
   "reffApi": ">=0.1.0 <0.2.0",
-  "games": ["MHWILDS"],
+  "games": ["MHWILDS", "MHRISE"],
   "ui": { "kind": "page", "mode": "isolated-page", "entry": "ui/index.html" },
   "methods": ["author.example.get"],
   "events": ["author.example.changed"],
@@ -22,6 +22,8 @@
 ```
 
 `methods` 和 `events` 只是声明，游戏侧还必须使用相同的插件 ID 注册实际 handler。方法名必须以 `author.example.` 开头，事件名和订阅 ID 使用小写字母、数字、点及连字符。
+
+`games` 使用 REFramework 的大写 `target_name`。纯通用插件可以声明 `"games": ["*"]`；读取或修改游戏对象的插件必须列出实际支持目标，并在 Lua 后端按游戏校验类型、方法和对象状态。
 
 ## Lua 注册
 
@@ -79,7 +81,7 @@ reff.dispose();
 
 ## 排查
 
-- 左侧没有插件：检查 JSON 是否通过 manifest 校验、`games` 是否包含 `MHWILDS`，以及 ID 是否重复。
+- 左侧没有插件：检查 JSON 是否通过 manifest 校验、`games` 是否包含当前 REFramework 目标名（或 `*`），以及 ID 是否重复。
 - `FORBIDDEN`：确认网页身份来自 `ui.identity`，方法/事件同时出现在 manifest 和 Lua 注册表，且使用自身命名空间。
 - 页面白屏或 404：检查 `entry` 和资源根，移除网络、绝对路径、目录穿越和 URL 编码。
 - 状态不更新：确认先等待 `subscribe` 返回，再读取快照；脚本 Reset 后重新注册和订阅。

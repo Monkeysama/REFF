@@ -59,14 +59,15 @@ int wmain(int argc, wchar_t** argv) {
         auto initialize = reinterpret_cast<REFPluginInitializeFn>(GetProcAddress(plugin, "reframework_plugin_initialize"));
         if (!version || !initialize) throw std::runtime_error("plugin exports missing");
         REFrameworkPluginVersion required{}; version(&required);
-        if (required.major != 1 || required.minor != 15 || std::string(required.game_name) != "MHWILDS") throw std::runtime_error("API requirement mismatch");
+        if (required.major != 1 || required.minor != 15 || required.game_name != nullptr) throw std::runtime_error("API requirement mismatch");
         REFrameworkPluginFunctions functions{};
         functions.on_lua_state_created = register_created; functions.on_lua_state_destroyed = register_destroyed;
         functions.on_present = register_present; functions.on_device_reset = register_reset; functions.on_message = register_message;
         functions.lock_lua = lock_lua; functions.unlock_lua = unlock_lua;
         functions.log_info = functions.log_warn = functions.log_error = log_message; functions.is_drawing_ui = is_drawing_ui;
         REFrameworkRendererData renderer{}; renderer.renderer_type = REFRAMEWORK_RENDERER_D3D12;
-        REFrameworkPluginInitializeParam param{}; param.functions = &functions; param.renderer_data = &renderer; param.version = &required;
+        REFrameworkPluginVersion installed{1, 15, 0, "MHRISE"};
+        REFrameworkPluginInitializeParam param{}; param.functions = &functions; param.renderer_data = &renderer; param.version = &installed;
         if (!initialize(&param) || !created || !destroyed || !present || !reset || !message || lock_depth) throw std::runtime_error("callback initialization failed");
         check_script("assert(type(reff_native.poll)=='function'); reff_native.set_ready(true); assert(reff_native.poll()==nil); assert(not reff_native.is_visible())");
         // 验证自有消息与普通消息都沿 REFramework 的窗口过程继续转发。

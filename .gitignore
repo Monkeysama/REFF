@@ -22,6 +22,7 @@ docs/performance-report-*.zh-CN.md
 docs/resource-observation.zh-CN.md
 docs/coding-conventions.zh-CN.md
 !docs/architecture.zh-CN.md
+!docs/compatibility.zh-CN.md
 !docs/developer-preview-0.1.0.zh-CN.md
 !docs/plugin-contract.zh-CN.md
 !docs/plugin-quickstart.zh-CN.md

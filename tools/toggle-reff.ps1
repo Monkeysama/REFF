@@ -7,7 +7,11 @@ $ErrorActionPreference = 'Stop'
 # 性能基线开关处理 REFF 核心入口及已安装的可选示例入口，保留原文件并拒绝游戏运行时改名。
 $targetRoot = [IO.Path]::GetFullPath($ReframeworkRoot).TrimEnd('\')
 if ((Split-Path $targetRoot -Leaf) -ne 'reframework' -or -not (Test-Path -LiteralPath $targetRoot -PathType Container)) { throw '目标必须是现有 reframework 目录' }
-if (Get-Process -Name MonsterHunterWilds, reff-host -ErrorAction SilentlyContinue) { throw '请先手动退出 Wilds 和 REFF 宿主，再切换基线。' }
+$gameRoot = Split-Path $targetRoot -Parent
+$gameProcess = if (Test-Path -LiteralPath (Join-Path $gameRoot 'MonsterHunterRise.exe')) { 'MonsterHunterRise' }
+    elseif (Test-Path -LiteralPath (Join-Path $gameRoot 'MonsterHunterWilds.exe')) { 'MonsterHunterWilds' }
+    else { throw '无法识别目标游戏' }
+if (Get-Process -Name $gameProcess, reff-host -ErrorAction SilentlyContinue) { throw "请先手动退出 $gameProcess 和 REFF 宿主，再切换基线。" }
 
 $entries = @(
     @{ path = 'plugins\REFF.dll'; disabled = 'plugins\REFF.dll.reff-disabled' },

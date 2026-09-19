@@ -39,9 +39,9 @@ std::string composition(HWND edit, bool result) {
 ImeProxy::~ImeProxy() { stop(); }
 
 // 创建代理线程；Windows EDIT 和 IME 上下文始终由该线程拥有，避免跨线程 SendMessage。
-void ImeProxy::start(HWND owner, Sender sender, Hotkey hotkey) {
+void ImeProxy::start(HWND owner, Sender sender, Hotkey hotkey, Diagnostic diagnostic) {
     if (thread_.joinable() || !owner || !IsWindow(owner)) return;
-    owner_ = owner; sender_ = std::move(sender); hotkey_ = std::move(hotkey);
+    owner_ = owner; sender_ = std::move(sender); hotkey_ = std::move(hotkey); diagnostic_ = std::move(diagnostic);
     thread_ = std::jthread([this, owner](std::stop_token stop) { run(stop, owner); });
 }
 
@@ -65,7 +65,21 @@ void ImeProxy::update_bounds(Json bounds) {
     { std::lock_guard lock(mutex_); bounds_ = std::move(bounds); }
     if (HWND edit = edit_.load()) PostMessageW(edit, apply_message_, 0, 0);
 }
-void ImeProxy::deactivate() { activate(Json{{"active", false}}); }
+void ImeProxy::deactivate() {
+    if (diagnostic_) diagnostic_("proxy_deactivate_requested");
+    activate(Json{{"active", false}});
+}
+
+// 游戏仍把按键投递给主窗口时只排队，不在游戏窗口线程调用 SetFocus 或 IMM32。
+void ImeProxy::redirect_input(UINT message, WPARAM key, LPARAM native) {
+    if (!active_.load(std::memory_order_acquire)) return;
+    {
+        std::lock_guard lock(mutex_);
+        if (redirected_input_.size() >= max_redirected_input_) redirected_input_.pop_front();
+        redirected_input_.push_back({message, key, native});
+    }
+    if (HWND edit = edit_.load()) PostMessageW(edit, redirect_message_, 0, 0);
+}
 
 // 代理线程创建透明标准 EDIT，并以 AttachThreadInput 取得与游戏一致的键盘焦点队列。
 void ImeProxy::run(std::stop_token stop, HWND owner) {
@@ -73,9 +87,8 @@ void ImeProxy::run(std::stop_token stop, HWND owner) {
     MSG queue_probe{}; PeekMessageW(&queue_probe, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
     owner_ = owner; thread_id_ = GetCurrentThreadId(); const DWORD game_thread = GetWindowThreadProcessId(owner, nullptr); const DWORD proxy_thread = thread_id_.load();
     if (!game_thread) { thread_id_ = 0; return; }
+    owner_thread_id_ = game_thread;
     attached_ = game_thread && game_thread != proxy_thread && AttachThreadInput(proxy_thread, game_thread, TRUE) != FALSE;
-    // 键盘布局按线程保存；代理若沿用默认英文布局，焦点迁移会令系统中/英指示器反复跳变。
-    if (HKL game_layout = GetKeyboardLayout(game_thread)) ActivateKeyboardLayout(game_layout, 0);
     instance_ = this;
     HWND edit = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_LAYERED, L"EDIT", L"",
         WS_POPUP | ES_LEFT | ES_AUTOHSCROLL, 0, 0, 1, 1, owner, nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -95,15 +108,18 @@ void ImeProxy::run(std::stop_token stop, HWND owner) {
         ImmAssociateContext(edit, nullptr); RemovePropW(edit, L"REFF.ImeProxy");
         if (original_) SetWindowLongPtrW(edit, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(original_));
         DestroyWindow(edit); edit_ = nullptr; original_ = nullptr; active_ = false;
+        if (font_) { DeleteObject(font_); font_ = nullptr; font_pixels_ = 0; }
         if (attached_) AttachThreadInput(proxy_thread, game_thread, FALSE);
         attached_ = false; instance_ = nullptr; thread_id_ = 0;
     };
     edit_ = edit; composition_active_ = false; suppress_chars_ = 0;
+    if (diagnostic_) diagnostic_("proxy_ready attached=" + std::to_string(attached_));
     try {
         apply_pending();
         MSG message{};
         while (!stop.stop_requested() && GetMessageW(&message, nullptr, 0, 0) > 0) { TranslateMessage(&message); DispatchMessageW(&message); }
     } catch (...) {
+        if (diagnostic_) diagnostic_("proxy_thread_exception");
         // 代理线程不得把异常传播到 std::jthread；cleanup 仍会释放所有窗口和 IME 资源。
     }
     cleanup();
@@ -116,10 +132,13 @@ void ImeProxy::apply_pending() {
     // 失效或尚未收到首个请求时按未激活处理，禁止 malformed JSON 穿透到线程入口。
     if (!request.is_object() || !request.value("active", false)) {
         const bool was_active = active_.exchange(false, std::memory_order_acq_rel);
+        if (was_active && diagnostic_) diagnostic_("proxy_apply_inactive");
+        { std::lock_guard lock(mutex_); redirected_input_.clear(); }
         if (HIMC context = ImmGetContext(edit)) { ImmNotifyIME(context, NI_COMPOSITIONSTR, CPS_CANCEL, 0); ImmReleaseContext(edit, context); }
         if (was_active && sender_) sender_({{"type", "ime"}, {"action", "cancel"}});
         ShowWindow(edit, SW_HIDE);
         active_input_id_.clear();
+        redirected_input_reported_ = false;
         // 代理尚未激活时不能抢回游戏焦点，否则首次页面加载会产生一次额外焦点振荡。
         if (was_active && owner_) SetFocus(owner_);
         return;
@@ -132,14 +151,63 @@ void ImeProxy::apply_pending() {
     // 只有输入框身份变化时同步文本、选区并取得系统焦点，后续上报仅用于更新候选框位置。
     if (new_session) {
         active_input_id_ = input_id;
+        // 只为新会话设置一次起始布局。输入过程中不得再次激活旧布局，否则 Rise 等游戏中
+        // 经主窗口回退的切换按键会被下一条消息立即重置为英文。
+        if (HKL game_layout = GetKeyboardLayout(owner_thread_id_)) ActivateKeyboardLayout(game_layout, 0);
         auto text = to_wide(request.value("text", std::string{}));
         const int length = static_cast<int>(text.size());
         const int selection_start = std::clamp(request.value("selectionStart", length), 0, length);
         const int selection_end = std::clamp(request.value("selectionEnd", length), selection_start, length);
         SetWindowTextW(edit, text.c_str());
         SendMessageW(edit, EM_SETSEL, static_cast<WPARAM>(selection_start), static_cast<LPARAM>(selection_end));
+        const bool focused = ensure_input_focus();
+        if (diagnostic_) diagnostic_("proxy_session_started focused=" + std::to_string(focused) +
+            " pending_active=" + std::to_string(active_.load()));
+    }
+}
+
+// 代理线程统一恢复 Windows 焦点和默认 IME 上下文；重复调用不会重置正在进行的组合文本。
+bool ImeProxy::ensure_input_focus() {
+    HWND edit = edit_.load();
+    if (!edit) return false;
+    const HWND previous_focus = GetFocus();
+    HIMC context = ImmGetContext(edit);
+    if (context) ImmReleaseContext(edit, context);
+    else {
+        ImmAssociateContextEx(edit, nullptr, IACE_DEFAULT);
+        if (diagnostic_) diagnostic_("proxy_context_restored");
+    }
+    if (GetFocus() != edit) {
         SetFocus(edit);
         if (GetFocus() != edit) { SetActiveWindow(edit); SetFocus(edit); }
+    }
+    const bool focused = GetFocus() == edit;
+    if (previous_focus != edit && diagnostic_)
+        diagnostic_("proxy_focus_recover success=" + std::to_string(focused ? 1 : 0));
+    return focused;
+}
+
+// 代理线程按收到顺序重新投递游戏窗口的键盘/语言消息，使 TranslateMessage 和系统 IME 正常参与。
+void ImeProxy::dispatch_redirected_input() {
+    HWND edit = edit_.load();
+    if (!edit || !active_.load(std::memory_order_acquire)) return;
+    std::deque<RedirectedInput> pending;
+    { std::lock_guard lock(mutex_); pending.swap(redirected_input_); }
+    if (pending.empty() || !ensure_input_focus()) return;
+    if (!redirected_input_reported_ && diagnostic_) {
+        redirected_input_reported_ = true;
+        diagnostic_("proxy_redirected_input");
+    }
+    for (const auto& input : pending) {
+        MSG message{};
+        message.hwnd = edit;
+        message.message = input.message;
+        message.wParam = input.wparam;
+        message.lParam = input.lparam;
+        message.time = static_cast<DWORD>(GetMessageTime());
+        GetCursorPos(&message.pt);
+        if (input.message == WM_KEYDOWN || input.message == WM_SYSKEYDOWN) TranslateMessage(&message);
+        DispatchMessageW(&message);
     }
 }
 
@@ -147,6 +215,19 @@ void ImeProxy::apply_pending() {
 void ImeProxy::apply_bounds() {
     HWND edit = edit_.load(); if (!edit || !owner_) return;
     Json bounds; { std::lock_guard lock(mutex_); bounds = bounds_; }
+    // 与网页字号同步，并清除 EDIT 默认左右边距；只有字号变化才重建字体，避免组合输入期间抖动。
+    const int pixels = std::clamp(bounds.value("fontSize", 16), 1, 256);
+    if (pixels != font_pixels_) {
+        HFONT next = CreateFontW(-pixels, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+            DEFAULT_PITCH, L"Microsoft YaHei UI");
+        if (next) {
+            SendMessageW(edit, WM_SETFONT, reinterpret_cast<WPARAM>(next), FALSE);
+            if (font_) DeleteObject(font_);
+            font_ = next; font_pixels_ = pixels;
+            SendMessageW(edit, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, 0);
+        }
+    }
     POINT point{bounds.value("x", 0), bounds.value("y", 0)}; ClientToScreen(owner_, &point);
     SetWindowPos(edit, HWND_TOP, point.x, point.y, std::max(1, bounds.value("width", 1)), std::max(1, bounds.value("height", 24)), SWP_NOACTIVATE | SWP_NOOWNERZORDER);
 }
@@ -192,7 +273,13 @@ void ImeProxy::send_key(UINT message, WPARAM key, LPARAM native) {
 LRESULT CALLBACK ImeProxy::edit_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     auto* self = instance_; if (!self || !self->original_) return DefWindowProcW(window, message, wparam, lparam);
     if (message == apply_message_) { self->apply_pending(); return 0; }
+    if (message == redirect_message_) { self->dispatch_redirected_input(); return 0; }
+    if ((message == WM_SETFOCUS || message == WM_KILLFOCUS || message == WM_ACTIVATEAPP) && self->diagnostic_)
+        self->diagnostic_("proxy_focus_message message=" + std::to_string(message) +
+            " wparam=" + std::to_string(wparam) + " lparam=" + std::to_string(lparam));
     LRESULT result = CallWindowProcW(self->original_, window, message, wparam, lparam);
+    if (message == WM_INPUTLANGCHANGEREQUEST && self->diagnostic_) self->diagnostic_("proxy_input_language_change_request");
+    if (message == WM_INPUTLANGCHANGE && lparam && self->diagnostic_) self->diagnostic_("proxy_input_language_changed");
     if (message == WM_IME_STARTCOMPOSITION) { self->composition_active_ = true; self->apply_bounds(); }
     else if (message == WM_IME_COMPOSITION) { self->handle_ime(lparam); self->apply_bounds(); }
     else if (message == WM_IME_ENDCOMPOSITION) self->handle_ime_end();

@@ -9,6 +9,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $buildDirectoryName = if ($Profile -eq 'GameTest') { 'build-ime' } else { 'build' }
 $buildRoot = Join-Path $repoRoot $buildDirectoryName
 $imeProxy = if ($Profile -eq 'GameTest') { 'ON' } else { 'OFF' }
+$imeDiagnostics = if ($Profile -eq 'GameTest') { 'ON' } else { 'OFF' }
 $perfDiagnostics = if ($Profile -eq 'GameTest') { 'ON' } else { 'OFF' }
 
 # 优先使用已安装 VS 的 CMake，避免要求用户修改系统 PATH。
@@ -19,7 +20,8 @@ $cmake = Join-Path $vsRoot 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\b
 $ctest = Join-Path (Split-Path $cmake) 'ctest.exe'
 
 & $cmake -S $repoRoot -B $buildRoot -G 'Visual Studio 18 2026' -A x64 `
-    "-DREFF_ENABLE_IME_PROXY=$imeProxy" "-DREFF_ENABLE_PERF_DIAGNOSTICS=$perfDiagnostics"
+    "-DREFF_ENABLE_IME_PROXY=$imeProxy" "-DREFF_ENABLE_IME_DIAGNOSTICS=$imeDiagnostics" `
+    "-DREFF_ENABLE_PERF_DIAGNOSTICS=$perfDiagnostics"
 if ($LASTEXITCODE -ne 0) { throw 'CMake 配置失败' }
 & $cmake --build $buildRoot --config Release --parallel 6
 if ($LASTEXITCODE -ne 0) { throw '原生构建失败' }

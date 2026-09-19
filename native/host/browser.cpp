@@ -1,4 +1,5 @@
 #include "browser.hpp"
+#include "ime_session.hpp"
 #include "include/cef_command_line.h"
 #include "include/cef_parser.h"
 #include "include/cef_scheme.h"
@@ -109,12 +110,13 @@ static bool beneath_without_reparse(const std::filesystem::path& root, const std
     return true;
 }
 
-BrowserClient::BrowserClient(std::wstring session, std::filesystem::path assets, std::filesystem::path manifests, bool self_test)
+BrowserClient::BrowserClient(std::wstring session, std::filesystem::path assets, std::filesystem::path manifests,
+                             std::string game, bool self_test)
     : assets_(std::move(assets)), session_(narrow(session)), self_test_(self_test) {
     reset_resize_log();
     reset_ime_log();
     gate_.open();
-    manifests_ = scan_manifests(manifests, manifest_errors_);
+    manifests_ = scan_manifests(manifests, manifest_errors_, game);
     frame_.open(session, false);
     router_ = CefMessageRouterBrowserSide::Create(CefMessageRouterConfig{});
     router_->AddHandler(this, false);
@@ -454,11 +456,13 @@ bool BrowserClient::OnQuery(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> f
                     std::string(params.value("active", false) ? "1" : "0") +
                     " x=" + std::to_string(params.value("x", 0)) + " y=" + std::to_string(params.value("y", 0)));
             const auto input_id = params.value("inputId", std::string{});
-            if (params.value("active", false)) active_ime_input_id_ = input_id;
+            const bool active = params.value("active", false);
+            const bool new_session = starts_new_ime_session(active_ime_input_id_, input_id, active);
+            // CEF 只在新输入框会话开始前取得一次逻辑焦点；透明 EDIT 随后取得系统焦点。
+            // 同一输入框的重复 bounds/text 上报若再次 SetFocus，会令两者持续争抢并造成页面与系统中/英状态闪烁。
+            if (new_session && browser_) browser_->GetHost()->SetFocus(true);
+            if (active) active_ime_input_id_ = input_id;
             else if (input_id.empty() || input_id == active_ime_input_id_) active_ime_input_id_.clear();
-            // 隔离 iframe 的输入焦点经过 Shell 转发后，显式恢复 CEF 宿主焦点，确保 ImeCommitText 仍投递到当前网页控件。
-            // 原生透明 EDIT 代理只负责接收 Windows IME 消息，不应取代 CEF renderer 的焦点归属。
-            if (params.value("active", false) && browser_) browser_->GetHost()->SetFocus(true);
             Json request = params; request["type"] = "ime_focus"; request["sessionId"] = session_;
             if (!channel_.send(std::move(request))) { callback->Failure(429, "QUEUE_FULL"); return true; }
             callback->Success("{}"); return true;
@@ -721,7 +725,8 @@ void BrowserApp::OnContextInitialized() {
     auto command = CefCommandLine::GetGlobalCommandLine();
     try {
         CefRefPtr<BrowserClient> client = new BrowserClient(command->GetSwitchValue("reff-session").ToWString(),
-            command->GetSwitchValue("reff-assets").ToWString(), command->GetSwitchValue("reff-manifests").ToWString(), command->HasSwitch("reff-self-test"));
+            command->GetSwitchValue("reff-assets").ToWString(), command->GetSwitchValue("reff-manifests").ToWString(),
+            command->GetSwitchValue("reff-game").ToString(), command->HasSwitch("reff-self-test"));
         CefWindowInfo window; window.SetAsWindowless(nullptr); window.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
         CefBrowserSettings settings; settings.windowless_frame_rate = 30;
         // Shell 自己绘制可调半透明表面；OSR 背景必须透明，圆角外像素才能显示游戏画面。

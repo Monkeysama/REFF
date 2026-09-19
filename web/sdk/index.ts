@@ -127,6 +127,18 @@ export function installInputFocusReporter(client: ReffClient): InputFocusReporte
   const report = (element: HTMLInputElement | HTMLTextAreaElement, active: boolean) => {
     if (disposed) return;
     const rect = element.getBoundingClientRect();
+    // 标准 EDIT 的插入点以文字区域为原点；扣除 CSS 边框/内边距，并匹配单行文本的垂直居中。
+    const style = getComputedStyle(element);
+    const px = (value: string) => Number.parseFloat(value) || 0;
+    const scaleX = rect.width / Math.max(1, element.offsetWidth);
+    const scaleY = rect.height / Math.max(1, element.offsetHeight);
+    const fontSize = Math.max(1, px(style.fontSize) * scaleY);
+    const leftInset = (px(style.borderLeftWidth) + px(style.paddingLeft)) * scaleX;
+    const rightInset = (px(style.borderRightWidth) + px(style.paddingRight)) * scaleX;
+    const topInset = (px(style.borderTopWidth) + px(style.paddingTop)) * scaleY;
+    const bottomInset = (px(style.borderBottomWidth) + px(style.paddingBottom)) * scaleY;
+    const contentHeight = Math.max(1, rect.height - topInset - bottomInset);
+    const lineHeight = Math.max(fontSize, px(style.lineHeight) * scaleY || fontSize * 1.2);
     const selectionStart = element.selectionStart ?? element.value.length;
     const selectionEnd = element.selectionEnd ?? selectionStart;
     void client.call('ui.input.focus', {
@@ -135,10 +147,11 @@ export function installInputFocusReporter(client: ReffClient): InputFocusReporte
       text: element.value,
       selectionStart,
       selectionEnd,
-      x: Math.round(rect.left),
-      y: Math.round(rect.top),
-      width: Math.max(1, Math.round(rect.width)),
-      height: Math.max(1, Math.round(rect.height)),
+      x: Math.round(rect.left + leftInset),
+      y: Math.round(rect.top + topInset + (element instanceof HTMLInputElement ? Math.max(0, (contentHeight - lineHeight) / 2) : 0)),
+      width: Math.max(1, Math.round(rect.width - leftInset - rightInset)),
+      height: Math.max(1, Math.round(element instanceof HTMLInputElement ? lineHeight : contentHeight)),
+      fontSize: Math.round(fontSize),
       viewportWidth: Math.max(1, Math.round(window.innerWidth)),
       viewportHeight: Math.max(1, Math.round(window.innerHeight)),
     }).catch(() => { /* 页面切换或宿主关闭时，焦点撤销无需向用户显示错误。 */ });
@@ -149,6 +162,8 @@ export function installInputFocusReporter(client: ReffClient): InputFocusReporte
     focused = null;
   };
   const activate = (element: HTMLInputElement | HTMLTextAreaElement) => {
+    // 一次点击会依次触发 pointerdown、捕获 focus 和冒泡 focusin；同一控件只建立一次会话，避免原生代理反复抢焦点。
+    if (focused === element) return;
     if (focused && focused !== element) report(focused, false);
     focused = element;
     report(element, true);
@@ -169,7 +184,10 @@ export function installInputFocusReporter(client: ReffClient): InputFocusReporte
   const onPointerDown = (event: PointerEvent) => {
     // 部分 CEF 版本在 iframe 内不会把 focusin 冒泡到 window；从组合事件路径识别真实输入控件并立即激活。
     const element = event.composedPath().find(isTextControl);
-    if (element && isTextControl(element)) activate(element);
+    if (element && isTextControl(element)) {
+      if (focused === element) window.setTimeout(() => { if (focused === element) report(element, true); }, 0);
+      else activate(element);
+    }
     else if (focused) deactivate();
   };
   const onEmbeddedIme = (event: MessageEvent) => {

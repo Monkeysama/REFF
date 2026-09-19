@@ -8,7 +8,7 @@ int main(int argc, char** argv) {
     if (argc != 2) return 2;
     try {
         std::vector<std::string> errors;
-        auto manifests = reff::scan_manifests(argv[1], errors);
+        auto manifests = reff::scan_manifests(argv[1], errors, "MHWILDS");
         if (manifests.size() != 2 || errors.size() != 1 || errors[0].find("保留命名空间") == std::string::npos)
             throw std::runtime_error("manifest scan or reserved namespace mismatch");
         if (manifests[0].id != "example.settings" || manifests[1].id != "example.status") throw std::runtime_error("manifest sort mismatch");
@@ -20,6 +20,10 @@ int main(int argc, char** argv) {
             summary["schema"].value("changeEvent", "") != "example.settings.changed")
             throw std::runtime_error("schema state contract mismatch");
         if (manifests[1].ui_mode != "isolated-page") throw std::runtime_error("page mode fallback mismatch");
+        std::vector<std::string> rise_errors;
+        auto rise_manifests = reff::scan_manifests(argv[1], rise_errors, "MHRISE");
+        if (rise_manifests.size() != 1 || rise_manifests[0].id != "example.settings" || rise_errors.size() != 1)
+            throw std::runtime_error("game filtering or wildcard mismatch");
 
         reff::SessionGate gate;
         auto epoch = gate.open(); gate.set_connected(true);

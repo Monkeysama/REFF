@@ -1,6 +1,6 @@
 ﻿param(
     [Parameter(Mandatory = $true)][ValidateSet('example.vue', 'example.react', 'example.html')][string]$PluginId,
-    [string]$GameReframeworkRoot = 'C:\Steam\steamapps\common\MonsterHunterWilds\reframework'
+    [Parameter(Mandatory = $true)][string]$GameReframeworkRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +35,10 @@ if (-not (Test-Path -LiteralPath $dist -PathType Container)) { throw "构建未�
 # 只覆盖目标插件目录；不会触碰 REFF.dll、CEF、Shell 或其他插件。
 New-Item -ItemType Directory -Force -Path $targetPluginRoot | Out-Null
 Copy-Item -LiteralPath $manifest -Destination (Join-Path $targetPluginRoot 'manifest.json') -Force
+$targetDist = [IO.Path]::GetFullPath((Join-Path $targetPluginRoot 'ui\dist'))
+if (-not $targetDist.StartsWith([IO.Path]::GetFullPath($targetPluginRoot).TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw '插件构建目标路径越界' }
+# Vite 文件名包含内容哈希；先清理本插件旧 dist，避免开发同步长期累积不再引用的资源。
+if (Test-Path -LiteralPath $targetDist) { Remove-Item -LiteralPath $targetDist -Recurse -Force }
 Copy-Item -LiteralPath $dist -Destination (Join-Path $targetPluginRoot 'ui') -Recurse -Force
 # 开发版本标记供 ui.dev.version 轮询；正式发布脚本不会复制此文件。
 [DateTime]::UtcNow.ToString('o') | Set-Content -LiteralPath (Join-Path $targetPluginRoot '.reff-dev-version') -Encoding utf8

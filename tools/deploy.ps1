@@ -6,9 +6,17 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $stageRoot = Join-Path $repoRoot 'staging\reframework'
 $targetRoot = [IO.Path]::GetFullPath($ReframeworkRoot).TrimEnd('\')
 
-# 只向明确的 REFramework 目录部署清单文件；游戏运行时禁止替换加载中的 DLL。
-if ((Split-Path $targetRoot -Leaf) -ne 'reframework' -or -not (Test-Path -LiteralPath $targetRoot -PathType Container)) { throw '目标必须是现有 reframework 目录' }
-if (Get-Process -Name MonsterHunterWilds -ErrorAction SilentlyContinue) { throw '请先退出 Wilds，再部署原生插件。' }
+# 只向带 REFramework 的已支持游戏部署；允许首次安装时创建 reframework 目录，但不创建或替换 dinput8.dll。
+$gameRoot = Split-Path $targetRoot -Parent
+$supportedGames = @{
+    'MonsterHunterWilds.exe' = 'MonsterHunterWilds'
+    'MonsterHunterRise.exe' = 'MonsterHunterRise'
+}
+if ((Split-Path $targetRoot -Leaf) -ne 'reframework' -or -not (Test-Path -LiteralPath $gameRoot -PathType Container)) { throw '目标必须是游戏目录下的 reframework 目录' }
+$gameEntry = $supportedGames.GetEnumerator() | Where-Object { Test-Path -LiteralPath (Join-Path $gameRoot $_.Key) } | Select-Object -First 1
+if (-not $gameEntry -or -not (Test-Path -LiteralPath (Join-Path $gameRoot 'dinput8.dll') -PathType Leaf)) { throw '目标目录不是已支持且已安装 REFramework 的游戏' }
+if (Get-Process -Name $gameEntry.Value -ErrorAction SilentlyContinue) { throw "请先退出 $($gameEntry.Value)，再部署原生插件。" }
+New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
 $manifestJson = Get-Content -LiteralPath (Join-Path $repoRoot 'staging\manifest.json') -Raw | ConvertFrom-Json
 # Windows PowerShell 5.1 会把 ConvertFrom-Json 的顶层数组作为单个管道对象返回；foreach 显式展开后再进入部署循环。
 $manifest = @()

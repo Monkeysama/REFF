@@ -1,8 +1,9 @@
-import { createEmbeddedTransport, createReffClient, installDevReload } from '@reff-sdk/index';
+import { createEmbeddedTransport, createReffClient, installDevReload, installInputFocusReporter } from '@reff-sdk/index';
 import './style.css';
 
 const reff = createReffClient(createEmbeddedTransport());
 const stopDevReload = installDevReload(reff);
+const removeInputFocusReporter = installInputFocusReporter(reff);
 const snapshot = document.querySelector('#snapshot')!;
 const refreshButton = document.querySelector<HTMLButtonElement>('#refresh')!;
 type Snapshot = { gameName: string; reframeworkVersion: string; hp: { available: boolean; current?: number; max?: number; percent?: number; adjustable: boolean }; uptimeSeconds: number; refreshCount: number };
@@ -27,4 +28,8 @@ void (async () => { try { await reff.ready(); const identity = await reff.call<{
 refreshButton.addEventListener('click', () => void refresh());
 document.querySelector<HTMLInputElement>('#hp-range')!.addEventListener('input', event => { hpPercent = Number((event.target as HTMLInputElement).value); document.querySelector('#hp-percent')!.textContent = `${hpPercent}%`; });
 document.querySelector<HTMLButtonElement>('#set-hp')!.addEventListener('click', () => void setHp());
-window.addEventListener('pagehide', () => { stopDevReload(); reff.dispose(); }, { once: true });
+document.querySelector<HTMLInputElement>('#text-input')!.addEventListener('input', event => {
+  const value = (event.target as HTMLInputElement).value;
+  document.querySelector('#input-preview')!.textContent = `当前输入：${value || '暂无内容'}`;
+});
+window.addEventListener('pagehide', () => { removeInputFocusReporter(); stopDevReload(); reff.dispose(); }, { once: true });

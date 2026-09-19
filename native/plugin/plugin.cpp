@@ -8,6 +8,7 @@
 #include "mouse_click.hpp"
 #include "settings.hpp"
 #include "keyboard_capture.hpp"
+#include "game_profile.hpp"
 // 预览构建标识：确保发布候选包重新生成 Core DLL，便于核对构建时间与版本。
 #include <windowsx.h>
 #include <commctrl.h>
@@ -18,6 +19,8 @@
 #include <unordered_set>
 #include <fstream>
 #include <sstream>
+#include <optional>
+#include <tuple>
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -63,6 +66,8 @@ struct Runtime {
     std::shared_ptr<SharedFrame> rendered_frame;
     std::mutex renderer_mutex;
     std::filesystem::path root;
+    // 当前游戏由 REFramework 已识别的 target_name 决定；复制后跨线程只读，不依赖上游指针寿命。
+    GameProfile game;
     std::wstring session;
     std::unordered_set<std::string> seen;
     std::mutex request_mutex;
@@ -109,6 +114,9 @@ struct Runtime {
     std::atomic_bool cursor_blocked{};
     // 输入穿透开关由设置 IPC 更新，窗口线程只读取原子快照；文本输入期间键盘始终由 REFF 独占。
     std::atomic_bool mouse_passthrough{}, keyboard_passthrough{}, web_input_active{};
+    // 部分游戏使用 RIDEV_NOLEGACY，透明 EDIT 因而收不到 WM_KEY*；运行时按能力检测后转译 Raw Keyboard。
+    std::atomic_bool raw_keyboard_no_legacy{};
+    ULONGLONG raw_keyboard_probe_tick{};
     // 快捷键绑定由设置线程更新，窗口消息线程只读取原子快照；capture_active 用于等待用户按键时屏蔽旧绑定。
     std::atomic_int hotkey_key{VK_F8}, hotkey_modifiers{};
     std::atomic_bool hotkey_capture{};
@@ -158,6 +166,19 @@ void ime_log(const std::string& message) {
     } catch (...) {}
 #else
     (void)message;
+#endif
+}
+
+// 每局游戏从空白 IME 诊断开始，避免跨进程焦点序列混在一起；只在显式诊断构建写文件。
+void reset_ime_log() {
+#if defined(REFF_ENABLE_IME_DIAGNOSTICS)
+    if (!runtime || runtime->root.empty()) return;
+    try {
+        const auto dir = reff_log_dir(runtime->root);
+        std::filesystem::create_directories(dir);
+        std::ofstream file(dir / L"reff_ime.log", std::ios::trunc);
+        file << "# REFF game-side IME diagnostics\n";
+    } catch (...) {}
 #endif
 }
 
@@ -502,6 +523,7 @@ void set_visible(bool visible) {
 // 游戏失焦时只释放输入与系统光标；DX12 面板继续合成，避免 Alt-Tab 后从游戏窗口消失。
 void suspend_for_focus() {
     if (!runtime->visible || runtime->focus_suspended.exchange(true)) return;
+    ime_log("suspend_for_focus");
     end_panel_drag();
     runtime->cursor_blocked = false;
 #if REFF_ENABLE_IME_PROXY
@@ -567,9 +589,32 @@ bool ensure_cursor_window(HWND window) {
             runtime->hotkey_modifiers.load(std::memory_order_acquire) == current_hotkey_modifiers();
         if (!runtime->hotkey_capture.load(std::memory_order_acquire) && (matches || key == VK_ESCAPE)) { set_visible(false); return true; }
         return false;
-    });
+    }, [](const std::string& message) { ime_log(message); });
 #endif
     return true;
+}
+
+// 查询进程当前注册的 Raw Input 键盘能力；只识别通用 HID 键盘，不依赖游戏名称。
+bool detect_raw_keyboard_no_legacy() {
+    UINT count = 0;
+    if (GetRegisteredRawInputDevices(nullptr, &count, sizeof(RAWINPUTDEVICE)) != 0 || !count) return false;
+    std::vector<RAWINPUTDEVICE> devices(count);
+    if (GetRegisteredRawInputDevices(devices.data(), &count, sizeof(RAWINPUTDEVICE)) == static_cast<UINT>(-1)) return false;
+    return std::any_of(devices.begin(), devices.begin() + count, [](const RAWINPUTDEVICE& device) {
+        return device.usUsagePage == 0x01 && device.usUsage == 0x06 && (device.dwFlags & RIDEV_NOLEGACY) == RIDEV_NOLEGACY;
+    });
+}
+
+// 将 RAWKEYBOARD 还原为标准键盘消息参数，交给代理线程的 TranslateMessage/IMM32 处理。
+std::optional<std::tuple<UINT, WPARAM, LPARAM>> translate_raw_keyboard(const RAWKEYBOARD& keyboard) {
+    if (keyboard.VKey == 0 || keyboard.VKey == 255) return std::nullopt;
+    UINT message = keyboard.Message;
+    if (message != WM_KEYDOWN && message != WM_KEYUP && message != WM_SYSKEYDOWN && message != WM_SYSKEYUP)
+        message = (keyboard.Flags & RI_KEY_BREAK) ? WM_KEYUP : WM_KEYDOWN;
+    LPARAM native = 1 | (static_cast<LPARAM>(keyboard.MakeCode) << 16);
+    if (keyboard.Flags & (RI_KEY_E0 | RI_KEY_E1)) native |= 1LL << 24;
+    if (keyboard.Flags & RI_KEY_BREAK) native |= (1LL << 30) | (1LL << 31);
+    return std::tuple{message, static_cast<WPARAM>(keyboard.VKey), native};
 }
 
 // 把网页面板逻辑像素换算成游戏客户区像素；所有坐标在游戏窗口线程使用前再次裁剪。
@@ -587,6 +632,7 @@ void map_ime_bounds(Json& value) {
     value["y"] = panel_top + y * panel_height_pixels / content_height;
     value["width"] = std::max(1, width * panel_width_pixels / content_width);
     value["height"] = std::max(1, height * panel_height_pixels / content_height);
+    if (value.contains("fontSize")) value["fontSize"] = std::clamp(value.value("fontSize", 16), 1, 256) * panel_height_pixels / content_height;
 }
 
 // 将已校验配置发布为输入线程可直接读取的原子状态；视觉配置由 Shell 自身应用。
@@ -803,7 +849,9 @@ void service_loop(std::stop_token stop) {
                 std::filesystem::create_directories(cache);
                 if (!std::filesystem::exists(executable)) throw std::runtime_error("host not installed");
                 std::wstring command = L"\"" + executable.wstring() + L"\" --reff-session=" + runtime->session +
-                    L" --reff-assets=\"" + assets.wstring() + L"\" --reff-manifests=\"" + manifests.wstring() + L"\" --reff-cache=\"" + cache.wstring() + L"\"";
+                    L" --reff-assets=\"" + assets.wstring() + L"\" --reff-manifests=\"" + manifests.wstring() +
+                    L"\" --reff-cache=\"" + cache.wstring() + L"\" --reff-game=" +
+                    std::wstring(runtime->game.target.begin(), runtime->game.target.end());
                 job.reset(CreateJobObjectW(nullptr, nullptr));
                 JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
                 limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -1106,10 +1154,17 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
     }
     if ((message == WM_ACTIVATEAPP && !wparam) || message == WM_KILLFOCUS) {
 #if REFF_ENABLE_IME_PROXY
+        // Windows 可在同一进程的不同 GUI 线程之间发送应用激活通知；转入代理线程
+        // 不能被当作 Alt-Tab，否则 ShowWindow/SetFocus 尚未完成就会取消输入会话。
+        if (message == WM_ACTIVATEAPP && runtime->ime.owns_thread(static_cast<DWORD>(lparam))) {
+            ime_log("internal_proxy_activation");
+            return true;
+        }
         // 点击网页输入框会让游戏窗口把焦点交给透明 EDIT；这是 REFF 内部焦点迁移，不是 Alt-Tab。
         if (message == WM_KILLFOCUS &&
             (runtime->ime.is_focus_target(reinterpret_cast<HWND>(lparam)) || runtime->ime.active())) return true;
 #endif
+        ime_log("external_focus_message message=" + std::to_string(message) + " target=" + std::to_string(lparam));
         suspend_for_focus(); sync_cursor(game_window); return true;
     }
     if (message == WM_SETFOCUS || (message == WM_ACTIVATEAPP && wparam)) {
@@ -1123,11 +1178,16 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
     }
     if (message == WM_KEYDOWN && wparam == VK_ESCAPE && !runtime->hotkey_capture.load(std::memory_order_acquire)) { set_visible(false); sync_cursor(game_window); return false; }
 #if REFF_ENABLE_IME_PROXY
-    // IME 激活后，键盘消息由透明 EDIT 代理统一送入 CEF；游戏窗口的同一份消息必须丢弃，
-    // 否则 GCS_RESULTSTR 的提交文本会再经过 WM_CHAR/WM_IME_CHAR 发送一次，产生“你好你好”。
+    // 少数游戏会在透明 EDIT 激活后把焦点抢回主窗口；此时把原始按键和输入语言消息转交代理线程，
+    // 由代理恢复焦点并经过 TranslateMessage/IMM32 处理。派生字符仍丢弃，避免重复提交。
     if (runtime->ime.active() &&
         (message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP ||
-         message == WM_CHAR || message == WM_IME_CHAR || message == WM_IME_COMPOSITION)) return false;
+         message == WM_INPUTLANGCHANGEREQUEST || message == WM_INPUTLANGCHANGE)) {
+        runtime->ime.redirect_input(message, static_cast<WPARAM>(wparam), static_cast<LPARAM>(lparam));
+        return false;
+    }
+    if (runtime->ime.active() &&
+        (message == WM_CHAR || message == WM_SYSCHAR || message == WM_IME_CHAR || message == WM_IME_COMPOSITION)) return false;
 #endif
     if (message == WM_SETCURSOR) {
         sync_cursor(game_window);
@@ -1151,6 +1211,26 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
                 const UINT read = GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER));
                 if (read != static_cast<UINT>(-1) && raw.header.dwType == RIM_TYPEKEYBOARD) {
                     input_passthrough = runtime->keyboard_passthrough.load() && !runtime->web_input_active.load();
+                    // RIDEV_NOLEGACY 会抑制透明 EDIT 所需的 WM_KEY*。仅在该能力确实启用时转译，
+                    // 避免同时存在传统消息的游戏产生重复按键或重复提交。
+#if REFF_ENABLE_IME_PROXY
+                    const auto now = GetTickCount64();
+                    if (!runtime->raw_keyboard_no_legacy.load(std::memory_order_acquire) &&
+                        (!runtime->raw_keyboard_probe_tick || now - runtime->raw_keyboard_probe_tick >= 1000)) {
+                        runtime->raw_keyboard_probe_tick = now;
+                        if (detect_raw_keyboard_no_legacy()) {
+                            runtime->raw_keyboard_no_legacy.store(true, std::memory_order_release);
+                            ime_log("raw_keyboard_no_legacy=1");
+                        }
+                    }
+                    if (runtime->ime.active() && runtime->raw_keyboard_no_legacy.load(std::memory_order_acquire)) {
+                        if (const auto translated = translate_raw_keyboard(raw.data.keyboard)) {
+                            const auto [key_message, key, native] = *translated;
+                            runtime->ime.redirect_input(key_message, key, native);
+                        }
+                        return false;
+                    }
+#endif
                 } else if (read != static_cast<UINT>(-1) && raw.header.dwType == RIM_TYPEMOUSE) {
                     const bool was_relative = runtime->cursor_input.relative();
                     POINT physical{};
@@ -1256,16 +1336,25 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
 }
 }
 
-// 拒绝不匹配的插件接口主/次版本；游戏标识使用本机日志中确认的 mhwilds。
+// DLL 使用通用 REFramework ABI，不在加载阶段绑定单一游戏；初始化阶段再按能力档案拒绝未验证目标。
 extern "C" __declspec(dllexport) void reframework_plugin_required_version(REFrameworkPluginVersion* version) {
     version->major = REFRAMEWORK_PLUGIN_VERSION_MAJOR; version->minor = REFRAMEWORK_PLUGIN_VERSION_MINOR;
-    version->patch = REFRAMEWORK_PLUGIN_VERSION_PATCH; version->game_name = "MHWILDS";
+    version->patch = REFRAMEWORK_PLUGIN_VERSION_PATCH; version->game_name = nullptr;
 }
 
-// 初始化只注册扩展，不改变 REFramework 布局；浏览器在用户按 F8 后懒启动。
+// 初始化选择当前游戏适配档案并注册扩展；未认证游戏或非 D3D12 渲染器在安装 Hook 前安全退出。
 extern "C" __declspec(dllexport) bool reframework_plugin_initialize(const REFrameworkPluginInitializeParam* param) {
-    if (!param || !param->functions || !param->renderer_data) return false;
+    if (!param || !param->functions || !param->renderer_data || !param->version) return false;
     api = param; runtime = new Runtime;
+    runtime->game = game_profile_for(param->version->game_name ? param->version->game_name : "");
+    if (!runtime->game.supported) {
+        param->functions->log_error("REFF: unsupported game target: %s", runtime->game.target.c_str());
+        delete runtime; runtime = nullptr; api = nullptr; return false;
+    }
+    if (runtime->game.d3d12_required && param->renderer_data->renderer_type != REFRAMEWORK_RENDERER_D3D12) {
+        param->functions->log_error("REFF: %s currently requires the D3D12 renderer", runtime->game.target.c_str());
+        delete runtime; runtime = nullptr; api = nullptr; return false;
+    }
     runtime->cursor_sync_message = RegisterWindowMessageW(L"REFF.CursorSync.v1");
     runtime->arrow_cursor = LoadCursorW(nullptr, IDC_ARROW);
     if (!runtime->cursor_sync_message || !runtime->arrow_cursor) {
@@ -1288,13 +1377,12 @@ extern "C" __declspec(dllexport) bool reframework_plugin_initialize(const REFram
         reinterpret_cast<LPCWSTR>(&reframework_plugin_initialize), &module);
     wchar_t path[32768]{}; GetModuleFileNameW(module, path, 32768);
     runtime->root = std::filesystem::path(path).parent_path().parent_path();
+    reset_ime_log();
     std::string settings_warning;
     runtime->settings.open(runtime->root / L"data" / L"REFF" / L"settings.json", settings_warning);
     apply_runtime_settings(runtime->settings.snapshot());
     if (!settings_warning.empty()) param->functions->log_warn("REFF: settings fallback to defaults: %s", settings_warning.c_str());
-    wchar_t executable_path[32768]{};
-    GetModuleFileNameW(nullptr, executable_path, 32768);
-    if (std::filesystem::path(executable_path).filename() == L"MonsterHunterWilds.exe") {
+    if (runtime->game.direct_input_keyboard) {
         if (runtime->keyboard_capture.install()) param->functions->log_info("REFF: DirectInput keyboard capture installed");
         else param->functions->log_warn("REFF: DirectInput keyboard capture unavailable; Win32 keyboard filtering remains active");
         refresh_keyboard_capture();
@@ -1309,7 +1397,7 @@ extern "C" __declspec(dllexport) bool reframework_plugin_initialize(const REFram
     param->functions->on_device_reset(on_reset);
     param->functions->on_message(on_message);
     runtime->service = std::jthread(service_loop);
-    param->functions->log_info("REFF M1 initialized. F8 opens/closes the local web panel.");
+    param->functions->log_info("REFF initialized for %s. The configured hotkey opens/closes the local web panel.", runtime->game.target.c_str());
     return true;
 }
 

@@ -19,7 +19,8 @@ class BrowserClient : public CefClient, public CefLifeSpanHandler, public CefRen
                       public CefLoadHandler, public CefDisplayHandler,
                       public CefMessageRouterBrowserSide::Handler {
 public:
-    BrowserClient(std::wstring session, std::filesystem::path assets, std::filesystem::path manifests, bool self_test);
+    BrowserClient(std::wstring session, std::filesystem::path assets, std::filesystem::path manifests,
+                  std::string game, bool self_test);
     CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
     CefRefPtr<CefRenderHandler> GetRenderHandler() override { return this; }
     CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }

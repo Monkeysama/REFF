@@ -4,7 +4,7 @@
   "name": "原生 HTML 接入示例",
   "version": "0.1.0",
   "reffApi": ">=0.1.0 <0.2.0",
-  "games": ["MHWILDS"],
+  "games": ["MHWILDS", "MHRISE"],
   "ui": {"kind": "page", "mode": "isolated-page", "entry": "ui/dist/index.html"},
   "methods": ["example.html.get", "example.html.refresh", "example.html.set-hp"],
   "events": [],

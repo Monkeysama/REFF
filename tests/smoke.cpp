@@ -18,6 +18,9 @@ int log_line(lua_State* state) { std::cout << lua_tostring(state, 1) << '\n'; re
 int set_ready(lua_State* state) { backend_ready = lua_toboolean(state, 1) != 0; return 0; }
 int is_ready(lua_State* state) { lua_pushboolean(state, backend_ready); return 1; }
 int emit_event(lua_State* state) { (void)state; lua_pushboolean(state, true); return 1; }
+// 自检只提供示例所需的只读 REFramework 身份，不模拟或访问任何真实游戏对象。
+int game_name(lua_State* state) { lua_pushstring(state, "mhwilds"); return 1; }
+int framework_version(lua_State* state) { lua_pushstring(state, "smoke-test"); return 1; }
 int poll(lua_State* state) {
     auto value = incoming.pop(); if (!value) return 0;
     auto raw = value->dump(); lua_pushlstring(state, raw.data(), raw.size()); return 1;
@@ -111,6 +114,8 @@ int wmain(int argc, wchar_t** argv) {
         lua_pushcfunction(state, on_reset); lua_setfield(state, -2, "on_script_reset"); lua_setglobal(state, "re");
         lua_newtable(state); lua_pushcfunction(state, log_line); lua_setfield(state, -2, "info");
         lua_pushcfunction(state, log_line); lua_setfield(state, -2, "warn"); lua_setglobal(state, "log");
+        lua_newtable(state); lua_pushcfunction(state, game_name); lua_setfield(state, -2, "get_game_name");
+        lua_pushcfunction(state, framework_version); lua_setfield(state, -2, "get_version_string"); lua_setglobal(state, "reframework");
         lua_newtable(state); lua_pushcfunction(state, decode_json); lua_setfield(state, -2, "load_string");
         lua_pushcfunction(state, encode_json); lua_setfield(state, -2, "dump_string"); lua_setglobal(state, "json");
         lua_getglobal(state, "package"); auto lua_path = (root / "lua/?.lua").generic_string();
@@ -138,7 +143,7 @@ int wmain(int argc, wchar_t** argv) {
         auto executable = runtime / L"reff-host.exe";
         std::wstring command = L"\"" + executable.wstring() + L"\" --reff-session=" + session + L" --reff-assets=\"" + assets.wstring() +
             L"\" --reff-manifests=\"" + (root / L"staging/reframework/reff/plugins").wstring() +
-            L"\" --reff-cache=\"" + cache.wstring() + L"\" --reff-self-test";
+            L"\" --reff-cache=\"" + cache.wstring() + L"\" --reff-game=MHWILDS --reff-self-test";
         if (stress) command += L" --reff-stress-test";
         Handle job(CreateJobObjectW(nullptr, nullptr)); JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -168,7 +173,8 @@ int wmain(int argc, wchar_t** argv) {
         int corner_alpha = -1, surface_alpha = -1;
         if (pixels.size() >= std::size_t(panel_width * panel_height * 4)) {
             corner_alpha = pixels[3];
-            surface_alpha = pixels[(500 * panel_width + 500) * 4 + 3];
+            // 左侧导航始终由 Shell 绘制；右侧隔离插件可以合法使用不透明背景，不能用于验证 Shell 表面透明度。
+            surface_alpha = pixels[(500 * panel_width + 100) * 4 + 3];
             if (corner_alpha > 32 || surface_alpha < 128 || surface_alpha >= 255)
                 throw std::runtime_error("transparent rounded Shell pixels are invalid");
             save_bitmap(root / L"artifacts/cef-frame.bmp", pixels);

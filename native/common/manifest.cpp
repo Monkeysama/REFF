@@ -120,7 +120,8 @@ std::vector<PluginManifest> scan_manifests(const std::filesystem::path& director
         if (code || !entry.is_regular_file() || entry.path().filename() != "manifest.json") continue;
         std::string error; auto manifest = load_manifest(entry.path(), error);
         if (!manifest) { errors.push_back(entry.path().string() + ": " + error); continue; }
-        if (std::find(manifest->games.begin(), manifest->games.end(), game) == manifest->games.end()) continue;
+        const bool all_games = std::find(manifest->games.begin(), manifest->games.end(), "*") != manifest->games.end();
+        if (!all_games && std::find(manifest->games.begin(), manifest->games.end(), game) == manifest->games.end()) continue;
         if (!ids.insert(manifest->id).second) { errors.push_back(entry.path().string() + ": 重复插件 ID"); continue; }
         result.push_back(std::move(*manifest));
     }

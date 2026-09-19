@@ -12,7 +12,7 @@
 
 ## 2. Manifest 草案
 
-以下示例使用 `MHWILDS` 作为原生插件的 `target_name`；日志中的小写显示名为 `mhwilds`。
+以下示例使用 REFramework 的 `target_name`；当前 Runtime 识别 `MHWILDS` 和 `MHRISE`，纯通用插件也可使用 `*`。
 
 ```json
 {
@@ -21,7 +21,7 @@
   "name": "Vue 3 接入示例",
   "version": "0.1.0",
   "reffApi": ">=0.1.0 <0.2.0",
-  "games": ["MHWILDS"],
+  "games": ["MHWILDS", "MHRISE"],
   "ui": {
     "kind": "page",
     "mode": "isolated-page",
@@ -39,6 +39,7 @@
 - ID 使用小写字母、数字及内部的点/连字符，禁止路径分隔符、空段和保留名；唯一性检查在加载时完成。`reff.*` 是 Core 系统插件保留命名空间，第三方 manifest 会被拒绝。
 - `entry` 相对 manifest 所在资源根目录，禁止绝对路径和越界资源。
 - `reffApi` 是 SDK 能力兼容范围，与 manifestVersion、IPC protocolVersion 分开管理。
+- `games` 按当前 REFramework `target_name` 过滤；`["*"]` 只适用于不依赖游戏对象的通用插件。Core 不把一个游戏的类型、方法或内存访问自动转换到另一游戏。
 - `methods/events` 是插件声明的能力集合，实际可调用集合还必须经过游戏侧注册。
 - 注册记录将 method 映射到所属插件，禁止覆盖其他插件方法。Lua 游戏侧注册表是最终权威，未知方法返回 `METHOD_NOT_FOUND`；前端只访问自己的注册能力，跨插件调用不在首版范围。
 - `fallback` 只是声明作者提供回退逻辑，不能代替作者实现旧 UI。

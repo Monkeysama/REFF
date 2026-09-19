@@ -1,6 +1,6 @@
 ﻿param(
     [Parameter(Mandatory = $true)][ValidateSet('example.vue', 'example.react', 'example.html')][string]$PluginId,
-    [string]$GameReframeworkRoot = 'C:\Steam\steamapps\common\MonsterHunterWilds\reframework',
+    [Parameter(Mandatory = $true)][string]$GameReframeworkRoot,
     [int]$PollMilliseconds = 500,
     [switch]$Once
 )

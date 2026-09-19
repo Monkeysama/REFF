@@ -7,7 +7,7 @@ struct IDirectInputDevice8W;
 
 namespace reff {
 
-// Wilds 键盘捕获层：只替换 DirectInput 键盘设备共享 vtable 的 GetDeviceState 槽位，
+// 已认证游戏的 DirectInput 键盘捕获层：只替换键盘设备共享 vtable 的 GetDeviceState 槽位，
 // 原调用仍经过 REFramework 已安装的 Hook；返回后按状态清零 256 键快照，不接触鼠标设备或 CEF 进程。
 class KeyboardCapture {
 public:
