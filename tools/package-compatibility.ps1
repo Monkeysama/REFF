@@ -32,12 +32,13 @@ if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repoRoot 'artifacts\c
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 
 # 构建路径固定启用透明 IME 代理和实验游戏开关，避免误用正式 DLL 或默认构建产物。
+# 实验兼容包与正式 Runtime 一样不包含示例插件；示例插件只通过独立 examples 增量包分发。
 if (-not $SkipBuild) {
-    & (Join-Path $PSScriptRoot 'build-web.ps1') -IncludeExamples
-    if ($LASTEXITCODE -ne 0) { throw '示例 Web 资源构建失败。' }
+    & (Join-Path $PSScriptRoot 'build-web.ps1')
+    if ($LASTEXITCODE -ne 0) { throw 'Web 资源构建失败。' }
     & (Join-Path $PSScriptRoot 'build.ps1') -Profile GameTest -ExperimentalGames
     if ($LASTEXITCODE -ne 0) { throw '实验原生构建失败。' }
-    & (Join-Path $PSScriptRoot 'stage.ps1') -BuildRoot $buildRoot -IncludeExamples -StagingRoot $compatibilityStageRoot
+    & (Join-Path $PSScriptRoot 'stage.ps1') -BuildRoot $buildRoot -StagingRoot $compatibilityStageRoot
     if ($LASTEXITCODE -ne 0) { throw '实验 staging 生成失败。' }
 }
 
@@ -55,6 +56,16 @@ Copy-Item -LiteralPath $stageRoot -Destination $workParent -Recurse -Force
 $compatibilityRoot = Join-Path $packageRoot 'reff\compatibility'
 $toolsRoot = Join-Path $packageRoot 'reff\tools'
 New-Item -ItemType Directory -Force -Path $compatibilityRoot, $toolsRoot | Out-Null
+# 兼容旧 staging：即使调用者传入了曾经包含示例的 staging，也不能把示例带入实验包。
+foreach ($examplePath in @(
+    (Join-Path $packageRoot 'autorun\REFF.examples.lua'),
+    (Join-Path $packageRoot 'reff\plugins\example.vue'),
+    (Join-Path $packageRoot 'reff\plugins\example.react'),
+    (Join-Path $packageRoot 'reff\plugins\example.html'),
+    (Join-Path $packageRoot 'reff\examples-dev')
+)) {
+    if (Test-Path -LiteralPath $examplePath) { Remove-Item -LiteralPath $examplePath -Recurse -Force }
+}
 $compatibilityGuide = Join-Path $repoRoot 'docs\compatibility.zh-CN.md'
 if (-not (Test-Path -LiteralPath $compatibilityGuide -PathType Leaf)) {
     throw "缺少实验兼容性说明文档：$compatibilityGuide"
@@ -87,12 +98,16 @@ foreach ($entry in $entries) {
 }
 foreach ($required in @(
     'reframework/plugins/REFF.dll',
-    'reframework/autorun/REFF.examples.lua',
     'reframework/reff/compatibility/README.zh-CN.md',
     'reframework/reff/compatibility/package.json',
     'reframework/reff/tools/collect-installed-compatibility.ps1'
 )) {
     if ($required -notin $entries) { throw "实验包缺少关键文件：$required" }
+}
+foreach ($entry in $entries) {
+    if ($entry -match '^reframework/(autorun/REFF\.examples\.lua|reff/plugins/example\.|reff/examples-dev/)') {
+        throw "实验包不得包含示例内容：$entry"
+    }
 }
 $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $([IO.Path]::GetFileName($archive))" | Set-Content -LiteralPath "$archive.sha256" -Encoding ascii
