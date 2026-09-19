@@ -44,18 +44,27 @@ Json SettingsStore::defaults() {
     appearance["cornerRadius"] = 6;
     appearance["surfaceBlur"] = 8;
     appearance["textScale"] = 1.0;
-    return {{"schemaVersion", 1}, {"language", "zh-CN"}, {"appearance", appearance},
+    return {{"schemaVersion", 1}, {"language", "zh-CN"}, {"hotkey", {{"key", VK_F8}, {"modifiers", 0}}}, {"appearance", appearance},
             {"input", {{"mousePassthrough", false}, {"keyboardPassthrough", false}}},
             {"window", {{"rememberGeometry", true}}}};
 }
 
 // 完整文档校验用于读取磁盘配置；字段缺失按默认值补齐，未知或越界字段拒绝加载。
 bool SettingsStore::validate_document(Json& value, std::string& error) {
-    if (!known_keys(value, {"schemaVersion", "language", "appearance", "input", "window"}) || value.value("schemaVersion", 0) != 1) {
+    if (!known_keys(value, {"schemaVersion", "language", "hotkey", "appearance", "input", "window"}) || value.value("schemaVersion", 0) != 1) {
         error = "配置版本或顶层字段不受支持"; return false;
     }
     const auto language = value.value("language", std::string{});
     if (language != "zh-CN" && language != "en-US") { error = "language 不受支持"; return false; }
+    // 旧配置没有 hotkey 时补回 F8；绑定只保存 Windows 虚拟键码和四种修饰键掩码。
+    if (!value.contains("hotkey")) value["hotkey"] = defaults()["hotkey"];
+    if (!known_keys(value["hotkey"], {"key", "modifiers"}) ||
+        !value["hotkey"].value("key", Json()).is_number_integer() ||
+        !value["hotkey"].value("modifiers", Json()).is_number_integer() ||
+        value["hotkey"].value("key", 0) < 1 || value["hotkey"].value("key", 0) > 255 ||
+        value["hotkey"].value("modifiers", -1) < 0 || value["hotkey"].value("modifiers", 16) > 15) {
+        error = "快捷键绑定不合法"; return false;
+    }
     if (!value.contains("appearance") || !known_keys(value["appearance"], {"preset", "accent", "background", "surface", "backgroundOpacity", "cornerRadius", "surfaceBlur", "textScale"})) {
         error = "appearance 字段不合法"; return false;
     }
@@ -115,10 +124,17 @@ Json SettingsStore::snapshot() const {
 
 // 设置页只提交差量对象；每个分组独立合并，禁止通过配置接口改写内部窗口几何。
 bool SettingsStore::update(const Json& patch, std::string& error) {
-    if (!known_keys(patch, {"language", "appearance", "input", "window"})) { error = "设置补丁包含未知字段"; return false; }
+    if (!known_keys(patch, {"language", "hotkey", "appearance", "input", "window"})) { error = "设置补丁包含未知字段"; return false; }
     std::lock_guard lock(mutex_);
     Json candidate = value_;
     if (patch.contains("language")) candidate["language"] = patch["language"];
+    if (patch.contains("hotkey")) {
+        if (!known_keys(patch["hotkey"], {"key", "modifiers"})) { error = "快捷键补丁不合法"; return false; }
+        for (const auto* key : {"key", "modifiers"}) if (!patch["hotkey"].contains(key) || !patch["hotkey"][key].is_number_integer()) {
+            error = "快捷键补丁不合法"; return false;
+        }
+        candidate["hotkey"] = patch["hotkey"];
+    }
     if (patch.contains("appearance")) {
         if (!known_keys(patch["appearance"], {"preset", "accent", "background", "surface", "backgroundOpacity", "cornerRadius", "surfaceBlur", "textScale"})) {
             error = "appearance 补丁不合法"; return false;

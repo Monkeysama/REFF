@@ -33,6 +33,7 @@ const isolatedReloadKey = shallowRef(0);
 const settings = shallowRef<ReffSettings>({
   schemaVersion: 1,
   language: 'zh-CN',
+  hotkey: { key: 119, modifiers: 0 },
   appearance: { preset: 'emerald', accent: '#67D3B2', background: '#10151E', surface: '#151D28', backgroundOpacity: 0.94, cornerRadius: 6, surfaceBlur: 8, textScale: 1 },
   input: { mousePassthrough: false, keyboardPassthrough: false },
   window: { rememberGeometry: true },
@@ -202,6 +203,12 @@ function updateSettings(patch: SettingsPatch) {
     ElMessage.error(String(error));
     try { applySettings(await reff.call<ReffSettings>('reff.settings.get')); } catch { /* 宿主断线时保留当前页面，下一次生命周期轮询负责恢复。 */ }
   }).finally(() => { savingSettings.value = false; });
+}
+
+// 设置页等待按键时暂时屏蔽旧快捷键，防止按下默认 F8 关闭正在编辑的面板。
+async function setHotkeyCapture(active: boolean) {
+  try { await reff.call('reff.settings.hotkey.capture', { active }); }
+  catch (error) { ElMessage.error(String(error)); }
 }
 
 // 恢复默认值同时清除已保存窗口几何，原生层会在下一帧重新居中。
@@ -476,7 +483,7 @@ onBeforeUnmount(async () => {
     <section class="reff-workspace">
       <div class="window-bar"><strong>{{ currentPageTitle }}</strong></div>
       <el-main class="workspace-content">
-        <SettingsPanel v-if="settingsActive" :settings="settings" :plugins="plugins" :version="reffVersion" :saving="savingSettings" @change="updateSettings" @reset="resetSettings" />
+        <SettingsPanel v-if="settingsActive" :settings="settings" :plugins="plugins" :version="reffVersion" :saving="savingSettings" @change="updateSettings" @reset="resetSettings" @hotkey-capture="setHotkeyCapture" />
         <div v-else-if="isolatedPlugin" class="isolated-host">
           <iframe :key="isolatedReloadKey" ref="isolatedFrame" :src="isolatedPluginUrl" :title="isolatedPlugin.name" />
         </div>

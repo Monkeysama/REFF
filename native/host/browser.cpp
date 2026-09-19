@@ -465,7 +465,7 @@ bool BrowserClient::OnQuery(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> f
         }
         // 内置设置页由 Shell 承载，Core 方法可在 Lua 未就绪时使用；第三方插件页不能取得该特权。
         const bool core_settings = page_.plugin_id.empty() &&
-            (method == "reff.settings.get" || method == "reff.settings.set" || method == "reff.settings.reset");
+            (method == "reff.settings.get" || method == "reff.settings.set" || method == "reff.settings.reset" || method == "reff.settings.hotkey.capture");
         if (self_test_ && method == "test.finished") {
             value["params"]["documentGeneration"] = document_generation_;
             value["params"]["subscriptions"] = subscriptions_.size();
@@ -614,6 +614,10 @@ void BrowserClient::dispatch(const Json& message) {
             {"testSequence", message.at("testSequence")}, {"value", visible},
             {"subscriptions", subscriptions_.size()}, {"pendingRequests", pending_.size()},
             {"subscriptionCleanup", subscription_cleanup_.size()}});
+    } else if (type == "focus") {
+        // 游戏失焦时只撤销 CEF 键盘焦点；保持 WasHidden(false)，让后台游戏窗口中的面板继续产出画面。
+        if (!browser_) return;
+        browser_->GetHost()->SetFocus(message.value("value", false));
     } else if (type == "viewport") {
         if (!browser_) return;
         const int width = message.value("width", 0), height = message.value("height", 0);

@@ -54,7 +54,7 @@ struct Runtime {
     Queue<std::string> perf_logs;
     std::atomic<std::shared_ptr<SharedFrame>> frame;
     std::atomic_bool visible{}, ready{}, connected{}, start_requested{};
-    // requested_visible 保留用户的打开意图；focus_suspended 只表示 Alt-Tab/失焦期间的临时隐藏。
+    // requested_visible 保留用户的打开意图；focus_suspended 只表示 Alt-Tab/失焦期间暂停输入，面板仍继续绘制。
     std::atomic_bool requested_visible{}, focus_suspended{};
     std::atomic_uint64_t epoch{1};
     std::atomic<lua_State*> owner{};
@@ -109,6 +109,9 @@ struct Runtime {
     std::atomic_bool cursor_blocked{};
     // 输入穿透开关由设置 IPC 更新，窗口线程只读取原子快照；文本输入期间键盘始终由 REFF 独占。
     std::atomic_bool mouse_passthrough{}, keyboard_passthrough{}, web_input_active{};
+    // 快捷键绑定由设置线程更新，窗口消息线程只读取原子快照；capture_active 用于等待用户按键时屏蔽旧绑定。
+    std::atomic_int hotkey_key{VK_F8}, hotkey_modifiers{};
+    std::atomic_bool hotkey_capture{};
     // 配置文件归 Core 所有；几何更新在窗口线程写内存，后台服务线程负责实际磁盘 I/O。
     SettingsStore settings;
     std::atomic_bool settings_save_requested{};
@@ -479,6 +482,7 @@ void refresh_keyboard_capture() {
 void set_visible(bool visible) {
     runtime->requested_visible = visible;
     runtime->visible = visible;
+    runtime->focus_suspended = false;
     runtime->cursor_blocked = visible;
     if (!visible) end_panel_drag();
 #if REFF_ENABLE_IME_PROXY
@@ -493,26 +497,28 @@ void set_visible(bool visible) {
     request_cursor_sync();
 }
 
-// 失焦时仅暂停有效显示，不清除用户的打开意图；恢复焦点后由游戏窗口线程重新显示。
+// 游戏失焦时只释放输入与系统光标；DX12 面板继续合成，避免 Alt-Tab 后从游戏窗口消失。
 void suspend_for_focus() {
-    if (!runtime->visible) return;
-    runtime->focus_suspended = true;
-    runtime->visible = false;
+    if (!runtime->visible || runtime->focus_suspended.exchange(true)) return;
+    end_panel_drag();
     runtime->cursor_blocked = false;
+#if REFF_ENABLE_IME_PROXY
+    runtime->ime.deactivate();
+#endif
+    runtime->web_input_active = false;
     refresh_keyboard_capture();
-    if (runtime->connected) runtime->channel.send({{"type", "visible"}, {"value", false}});
+    if (runtime->connected) runtime->channel.send({{"type", "focus"}, {"value", false}});
     request_cursor_sync();
 }
 
-// 恢复焦点时恢复同一会话和页面，禁止在宿主断开或脚本重置后复活旧面板。
+// 游戏重新获得焦点时恢复输入捕获；页面一直可见，因此不触发 CEF 隐藏或重新布局。
 void restore_after_focus(HWND window) {
     if (!runtime->focus_suspended || !runtime->requested_visible || !runtime->connected || !runtime->ready) return;
     if (GetForegroundWindow() != window) return;
     runtime->focus_suspended = false;
-    runtime->visible = true;
     runtime->cursor_blocked = true;
     refresh_keyboard_capture();
-    runtime->channel.send({{"type", "visible"}, {"value", true}});
+    runtime->channel.send({{"type", "focus"}, {"value", true}});
     request_cursor_sync();
 }
 
@@ -527,7 +533,8 @@ LRESULT CALLBACK cursor_window_proc(HWND window, UINT message, WPARAM wparam, LP
     }
     if (message == WM_KILLFOCUS || message == WM_NCDESTROY) {
         end_panel_drag();
-        set_visible(false);
+        if (message == WM_KILLFOCUS) suspend_for_focus();
+        else set_visible(false);
         sync_cursor(window);
         if (message == WM_NCDESTROY) {
             RemoveWindowSubclass(window, cursor_window_proc, subclass_id);
@@ -542,6 +549,8 @@ LRESULT CALLBACK cursor_window_proc(HWND window, UINT message, WPARAM wparam, LP
     return DefSubclassProc(window, message, wparam, lparam);
 }
 
+int current_hotkey_modifiers();
+
 // 首次窗口消息抵达时在所属线程安装子类，不从后台线程跨线程修改窗口过程。
 bool ensure_cursor_window(HWND window) {
     if (runtime->game_window == window) return true;
@@ -552,7 +561,10 @@ bool ensure_cursor_window(HWND window) {
     runtime->game_window = window;
 #if REFF_ENABLE_IME_PROXY
     runtime->ime.start(window, [](Json value) { runtime->channel.send(std::move(value)); }, [](int key) {
-        if (key == VK_F8 || key == VK_ESCAPE) set_visible(false);
+        const bool matches = runtime->hotkey_key.load(std::memory_order_acquire) == key &&
+            runtime->hotkey_modifiers.load(std::memory_order_acquire) == current_hotkey_modifiers();
+        if (!runtime->hotkey_capture.load(std::memory_order_acquire) && (matches || key == VK_ESCAPE)) { set_visible(false); return true; }
+        return false;
     });
 #endif
     return true;
@@ -580,17 +592,42 @@ void apply_runtime_settings(const Json& settings) {
     const auto input = settings.value("input", Json::object());
     runtime->mouse_passthrough = input.value("mousePassthrough", false);
     runtime->keyboard_passthrough = input.value("keyboardPassthrough", false);
+    const auto hotkey = settings.value("hotkey", Json::object());
+    runtime->hotkey_key = hotkey.value("key", VK_F8);
+    runtime->hotkey_modifiers = hotkey.value("modifiers", 0);
     refresh_keyboard_capture();
+}
+
+// 将 Windows 当前修饰键转换为设置文件使用的掩码；左右 Shift/Ctrl/Alt 统一为同一逻辑键。
+int current_hotkey_modifiers() {
+    int modifiers = 0;
+    if (GetKeyState(VK_SHIFT) & 0x8000) modifiers |= 1;
+    if (GetKeyState(VK_CONTROL) & 0x8000) modifiers |= 2;
+    if (GetKeyState(VK_MENU) & 0x8000) modifiers |= 4;
+    if ((GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) & 0x8000) modifiers |= 8;
+    return modifiers;
+}
+
+// 只有完整的按键和修饰键组合才触发面板开关，避免 Ctrl/F8 等组合误触发普通 F8 绑定。
+bool is_configured_hotkey(UINT message, WPARAM key, LPARAM lparam) {
+    if (message != WM_KEYDOWN && message != WM_SYSKEYDOWN) return false;
+    if (lparam & (1LL << 30)) return false;
+    return runtime->hotkey_key.load(std::memory_order_acquire) == static_cast<int>(key) &&
+        runtime->hotkey_modifiers.load(std::memory_order_acquire) == current_hotkey_modifiers();
 }
 
 // Core 设置请求在 IPC 线程完成，不经过 Lua，因此脚本重载和单个插件故障不会阻断设置页。
 bool handle_settings_request(const Json& request) {
     const auto method = request.value("method", std::string{});
-    if (method != "reff.settings.get" && method != "reff.settings.set" && method != "reff.settings.reset") return false;
+    if (method != "reff.settings.get" && method != "reff.settings.set" && method != "reff.settings.reset" && method != "reff.settings.hotkey.capture") return false;
     auto response = Json{{"type", "response"}, {"id", request.value("id", std::string{})}, {"epoch", runtime->epoch.load()}};
     try {
         if (request.contains("pluginId")) throw std::runtime_error("系统设置只允许 Shell 调用");
-        if (method == "reff.settings.set") {
+        if (method == "reff.settings.hotkey.capture") {
+            const auto params = request.value("params", Json::object());
+            if (!params.is_object() || !params.value("active", Json()).is_boolean()) throw std::runtime_error("快捷键捕获参数不合法");
+            runtime->hotkey_capture = params.value("active", false);
+        } else if (method == "reff.settings.set") {
             std::string error;
             if (!runtime->settings.update(request.value("params", Json::object()), error)) throw std::runtime_error(error);
         } else if (method == "reff.settings.reset") {
@@ -605,7 +642,7 @@ bool handle_settings_request(const Json& request) {
         }
         auto settings = runtime->settings.snapshot();
         apply_runtime_settings(settings);
-        if (method != "reff.settings.get") {
+        if (method != "reff.settings.get" && method != "reff.settings.hotkey.capture") {
             // 开启记录时把当前窗口作为新的持久化起点；关闭记录会由 SettingsStore 清除旧几何。
             if (method == "reff.settings.set" && settings["window"].value("rememberGeometry", true)) {
                 RECT client{}; const auto window = runtime->game_window.load();
@@ -904,7 +941,6 @@ void on_present() {
         runtime->perf_present_window_started_us = present_now_us;
     }
 #endif
-    if (runtime->focus_suspended && runtime->renderer.window()) restore_after_focus(runtime->renderer.window());
     if (!runtime->visible || !runtime->connected) return;
     std::lock_guard lock(runtime->renderer_mutex);
     const auto* renderer = api->renderer_data;
@@ -918,7 +954,8 @@ void on_present() {
     foreground = foreground || runtime->ime.owns_foreground();
     foreground = foreground || runtime->ime.active();
 #endif
-    if (!foreground) { suspend_for_focus(); return; }
+    if (!foreground) suspend_for_focus();
+    else if (runtime->focus_suspended) restore_after_focus(runtime->renderer.window());
     RECT client{};
     if (!GetClientRect(runtime->renderer.window(), &client) || client.right <= 0 || client.bottom <= 0) return;
     const std::pair client_size{int(client.right), int(client.bottom)};
@@ -1037,16 +1074,17 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
         dispatch_virtual_cursor_move(0);
         return false;
     }
-    if (message == WM_KEYDOWN && wparam == VK_F8 && !(lparam & (1LL << 30))) {
+    if (is_configured_hotkey(message, wparam, lparam) && !runtime->hotkey_capture.load(std::memory_order_acquire)) {
         const bool opening = !runtime->visible.load();
         if (opening) synchronize_virtual_cursor_position(game_window);
         if (!opening) end_panel_drag();
         set_visible(opening); sync_cursor(game_window); return false;
     }
-    if (message == WM_KILLFOCUS) {
+    if ((message == WM_ACTIVATEAPP && !wparam) || message == WM_KILLFOCUS) {
 #if REFF_ENABLE_IME_PROXY
         // 点击网页输入框会让游戏窗口把焦点交给透明 EDIT；这是 REFF 内部焦点迁移，不是 Alt-Tab。
-        if (runtime->ime.is_focus_target(reinterpret_cast<HWND>(lparam)) || runtime->ime.active()) return true;
+        if (message == WM_KILLFOCUS &&
+            (runtime->ime.is_focus_target(reinterpret_cast<HWND>(lparam)) || runtime->ime.active())) return true;
 #endif
         suspend_for_focus(); sync_cursor(game_window); return true;
     }
@@ -1054,10 +1092,12 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
         restore_after_focus(game_window); sync_cursor(game_window); return true;
     }
     if (!runtime->visible || !runtime->connected || !runtime->channel.connected()) return true;
+    // 注册了 INPUTSINK 的游戏在后台仍可能收到 Raw Input；暂停期间必须完整放行，不能更新网页指针或吞掉系统输入。
+    if (runtime->focus_suspended) return true;
     if (runtime->pending_virtual_cursor_dispatch) {
         dispatch_virtual_cursor_move(0); runtime->pending_virtual_cursor_dispatch = false;
     }
-    if (message == WM_KEYDOWN && wparam == VK_ESCAPE) { set_visible(false); sync_cursor(game_window); return false; }
+    if (message == WM_KEYDOWN && wparam == VK_ESCAPE && !runtime->hotkey_capture.load(std::memory_order_acquire)) { set_visible(false); sync_cursor(game_window); return false; }
 #if REFF_ENABLE_IME_PROXY
     // IME 激活后，键盘消息由透明 EDIT 代理统一送入 CEF；游戏窗口的同一份消息必须丢弃，
     // 否则 GCS_RESULTSTR 的提交文本会再经过 WM_CHAR/WM_IME_CHAR 发送一次，产生“你好你好”。

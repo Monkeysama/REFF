@@ -7,10 +7,11 @@ import AppearanceSection from './AppearanceSection.vue';
 import InputSection from './InputSection.vue';
 import PluginSection from './PluginSection.vue';
 import WindowSection from './WindowSection.vue';
+import HotkeySection from './HotkeySection.vue';
 import type { LoadedPlugin, ReffSettings, SettingsPatch } from './types';
 
 const props = defineProps<{ settings: ReffSettings; plugins: LoadedPlugin[]; version: string; saving: boolean }>();
-const emit = defineEmits<{ change: [value: SettingsPatch]; reset: [] }>();
+const emit = defineEmits<{ change: [value: SettingsPatch]; reset: []; hotkeyCapture: [active: boolean] }>();
 const t = computed(() => (key: Parameters<typeof translate>[1]) => translate(props.settings.language, key));
 
 function setLanguage(value: string) {
@@ -30,6 +31,7 @@ function setLanguage(value: string) {
         </el-select>
       </label>
     </section>
+    <HotkeySection :hotkey="settings.hotkey" :language="settings.language" @change="emit('change', { hotkey: $event })" @capture="emit('hotkeyCapture', $event)" />
     <AppearanceSection :appearance="settings.appearance" :language="settings.language" @change="emit('change', { appearance: $event })" />
     <InputSection :input="settings.input" :language="settings.language" @change="emit('change', { input: $event })" />
     <WindowSection :window-settings="settings.window" :language="settings.language" @change="emit('change', { window: $event })" />

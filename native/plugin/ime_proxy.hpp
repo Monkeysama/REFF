@@ -14,7 +14,7 @@ namespace reff {
 class ImeProxy {
 public:
     using Sender = std::function<void(Json)>;
-    using Hotkey = std::function<void(int)>;
+    using Hotkey = std::function<bool(int)>;
 
     ~ImeProxy();
 

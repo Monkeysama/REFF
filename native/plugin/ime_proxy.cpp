@@ -175,7 +175,10 @@ void ImeProxy::handle_ime_end() {
 
 // 普通英文输入仍通过 CEF 键盘事件处理；IME 确认文本只能经 ImeCommitText 进入 CEF 一次。
 void ImeProxy::send_key(UINT message, WPARAM key, LPARAM native) {
-    if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && (key == VK_F8 || key == VK_ESCAPE)) { if (hotkey_) hotkey_(static_cast<int>(key)); return; }
+    if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && hotkey_ && (key == VK_ESCAPE || key >= 1 && key <= 255)) {
+        // 代理窗口只拦截真正由快捷键回调处理的按键；普通按键继续交给 CEF。
+        if (hotkey_(static_cast<int>(key))) return;
+    }
     // IMM 在 GCS_RESULTSTR 后通常投递 WM_IME_CHAR，部分布局还会再由 TranslateMessage 产生 WM_CHAR。
     // 前者若参与数量抵消，会令后者穿透到 CEF，与 ImeCommitText 形成重复提交；因此永不转发 WM_IME_CHAR。
     if (message == WM_IME_CHAR) return;
