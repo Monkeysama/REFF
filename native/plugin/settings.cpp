@@ -45,13 +45,14 @@ Json SettingsStore::defaults() {
     appearance["surfaceBlur"] = 8;
     appearance["textScale"] = 1.0;
     return {{"schemaVersion", 1}, {"language", "zh-CN"}, {"hotkey", {{"key", VK_F8}, {"modifiers", 0}}}, {"appearance", appearance},
+            {"startup", {{"preload", true}}},
             {"input", {{"mousePassthrough", false}, {"keyboardPassthrough", false}}},
             {"window", {{"rememberGeometry", true}}}};
 }
 
 // 完整文档校验用于读取磁盘配置；字段缺失按默认值补齐，未知或越界字段拒绝加载。
 bool SettingsStore::validate_document(Json& value, std::string& error) {
-    if (!known_keys(value, {"schemaVersion", "language", "hotkey", "appearance", "input", "window"}) || value.value("schemaVersion", 0) != 1) {
+    if (!known_keys(value, {"schemaVersion", "language", "hotkey", "appearance", "startup", "input", "window"}) || value.value("schemaVersion", 0) != 1) {
         error = "配置版本或顶层字段不受支持"; return false;
     }
     const auto language = value.value("language", std::string{});
@@ -64,6 +65,11 @@ bool SettingsStore::validate_document(Json& value, std::string& error) {
         value["hotkey"].value("key", 0) < 1 || value["hotkey"].value("key", 0) > 255 ||
         value["hotkey"].value("modifiers", -1) < 0 || value["hotkey"].value("modifiers", 16) > 15) {
         error = "快捷键绑定不合法"; return false;
+    }
+    // 早期配置没有启动分组；升级时默认开启延迟预热，不改变 schemaVersion。
+    if (!value.contains("startup")) value["startup"] = defaults()["startup"];
+    if (!known_keys(value["startup"], {"preload"}) || !value["startup"].value("preload", Json()).is_boolean()) {
+        error = "startup 字段不合法"; return false;
     }
     if (!value.contains("appearance") || !known_keys(value["appearance"], {"preset", "accent", "background", "surface", "backgroundOpacity", "cornerRadius", "surfaceBlur", "textScale"})) {
         error = "appearance 字段不合法"; return false;
@@ -124,7 +130,7 @@ Json SettingsStore::snapshot() const {
 
 // 设置页只提交差量对象；每个分组独立合并，禁止通过配置接口改写内部窗口几何。
 bool SettingsStore::update(const Json& patch, std::string& error) {
-    if (!known_keys(patch, {"language", "hotkey", "appearance", "input", "window"})) { error = "设置补丁包含未知字段"; return false; }
+    if (!known_keys(patch, {"language", "hotkey", "appearance", "startup", "input", "window"})) { error = "设置补丁包含未知字段"; return false; }
     std::lock_guard lock(mutex_);
     Json candidate = value_;
     if (patch.contains("language")) candidate["language"] = patch["language"];
@@ -155,6 +161,13 @@ bool SettingsStore::update(const Json& patch, std::string& error) {
             if (std::string_view(key) == "accent" || std::string_view(key) == "background" || std::string_view(key) == "surface")
                 candidate["appearance"]["preset"] = "custom";
         }
+    }
+    if (patch.contains("startup")) {
+        if (!known_keys(patch["startup"], {"preload"}) ||
+            (patch["startup"].contains("preload") && !patch["startup"]["preload"].is_boolean())) {
+            error = "startup 补丁不合法"; return false;
+        }
+        if (patch["startup"].contains("preload")) candidate["startup"]["preload"] = patch["startup"]["preload"];
     }
     if (patch.contains("input")) {
         if (!known_keys(patch["input"], {"mousePassthrough", "keyboardPassthrough"})) { error = "input 补丁不合法"; return false; }

@@ -109,18 +109,20 @@ int main() {
             reff::SettingsStore settings; std::string warning, error;
             settings.open(path, warning);
             require(warning.empty() && settings.snapshot().value("language", "") == "zh-CN" &&
-                settings.snapshot()["appearance"].value("textScale", 0.0) == 1.0, "settings defaults");
+                settings.snapshot()["appearance"].value("textScale", 0.0) == 1.0 &&
+                settings.snapshot()["startup"].value("preload", false), "settings defaults");
             require(!settings.update({{"unknown", true}}, error), "unknown settings rejected");
             error.clear();
             require(settings.update({{"language", "en-US"}, {"appearance", {{"surfaceBlur", 32}, {"textScale", 1.4}}},
-                {"input", {{"mousePassthrough", true}}}}, error), "settings patch accepted");
+                {"startup", {{"preload", false}}}, {"input", {{"mousePassthrough", true}}}}, error), "settings patch accepted");
             error.clear();
             require(!settings.update({{"appearance", {{"surfaceBlur", 33}}}}, error), "settings blur upper bound");
             settings.set_geometry({1920, 1080, 480, 220, 960, 640});
             require(settings.save(error), "settings atomically saved");
             reff::SettingsStore loaded; loaded.open(path, warning);
             const auto restored = loaded.restored_geometry(2560, 1440);
-            require(warning.empty() && loaded.snapshot()["input"].value("mousePassthrough", false), "settings persisted");
+            require(warning.empty() && loaded.snapshot()["input"].value("mousePassthrough", false) &&
+                !loaded.snapshot()["startup"].value("preload", true), "settings persisted");
             require(restored && restored->left == 640 && restored->top == 293 && restored->width == 1280 && restored->height == 853,
                 "settings geometry scaled");
             std::filesystem::remove_all(directory, ignored);

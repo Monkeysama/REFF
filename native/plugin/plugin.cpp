@@ -112,6 +112,8 @@ struct Runtime {
     // 快捷键绑定由设置线程更新，窗口消息线程只读取原子快照；capture_active 用于等待用户按键时屏蔽旧绑定。
     std::atomic_int hotkey_key{VK_F8}, hotkey_modifiers{};
     std::atomic_bool hotkey_capture{};
+    // 延迟预热只控制每局游戏的一次后台宿主启动；预热期间不改变面板显隐与输入状态。
+    std::atomic_bool preload_enabled{true};
     // 配置文件归 Core 所有；几何更新在窗口线程写内存，后台服务线程负责实际磁盘 I/O。
     SettingsStore settings;
     std::atomic_bool settings_save_requested{};
@@ -595,6 +597,7 @@ void apply_runtime_settings(const Json& settings) {
     const auto hotkey = settings.value("hotkey", Json::object());
     runtime->hotkey_key = hotkey.value("key", VK_F8);
     runtime->hotkey_modifiers = hotkey.value("modifiers", 0);
+    runtime->preload_enabled = settings.value("startup", Json::object()).value("preload", true);
     refresh_keyboard_capture();
 }
 
@@ -737,6 +740,9 @@ void service_loop(std::stop_token stop) {
     HostHealth health;
     bool shutdown_sent = false;
     ULONGLONG shutdown_tick = 0;
+    constexpr auto preload_delay = std::chrono::seconds(8);
+    bool preload_attempted = false;
+    std::optional<std::chrono::steady_clock::time_point> preload_ready_since;
     // 先停止 IPC 回调，再清理业务队列；指针状态在同一把锁下结束。
     // Job 只包含本次创建的 REFF 宿主及其后代，关闭它不会终止游戏或其他 Mod。
     auto release_host = [&] {
@@ -758,6 +764,21 @@ void service_loop(std::stop_token stop) {
     };
     auto hidden_since = std::chrono::steady_clock::now();
     while (!stop.stop_requested()) {
+        const auto loop_now = std::chrono::steady_clock::now();
+        const bool preload_eligible = runtime->ready.load(std::memory_order_acquire) &&
+            runtime->preload_enabled.load(std::memory_order_acquire);
+        if (!preload_attempted && !process && preload_eligible) {
+            if (!preload_ready_since) preload_ready_since = loop_now;
+            if (loop_now - *preload_ready_since >= preload_delay) {
+                preload_attempted = true;
+                runtime->start_requested = true;
+                api->functions->log_info("REFF: delayed browser prewarm requested");
+            }
+        } else if (!preload_eligible) {
+            preload_ready_since.reset();
+        }
+        // 用户在延迟期内主动打开时，同一宿主已经承担预热职责；回收后不自动循环拉起。
+        if (runtime->visible.load(std::memory_order_acquire)) preload_attempted = true;
         if (process) {
             const char* reason = health.failure(GetTickCount64(), WaitForSingleObject(process.get(), 0) == WAIT_OBJECT_0,
                 runtime->connected.load(), runtime->channel.connected());

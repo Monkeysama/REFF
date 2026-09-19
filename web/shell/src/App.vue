@@ -35,6 +35,7 @@ const settings = shallowRef<ReffSettings>({
   language: 'zh-CN',
   hotkey: { key: 119, modifiers: 0 },
   appearance: { preset: 'emerald', accent: '#67D3B2', background: '#10151E', surface: '#151D28', backgroundOpacity: 0.94, cornerRadius: 6, surfaceBlur: 8, textScale: 1 },
+  startup: { preload: true },
   input: { mousePassthrough: false, keyboardPassthrough: false },
   window: { rememberGeometry: true },
 });

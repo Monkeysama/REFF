@@ -5,6 +5,9 @@ export type ReffSettings = {
   language: ReffLanguage;
   hotkey: { key: number; modifiers: number };
   appearance: ReffAppearance;
+  startup: {
+    preload: boolean;
+  };
   input: {
     mousePassthrough: boolean;
     keyboardPassthrough: boolean;
@@ -26,6 +29,7 @@ export type SettingsPatch = {
   language?: ReffLanguage;
   hotkey?: Partial<ReffSettings['hotkey']>;
   appearance?: Partial<ReffAppearance>;
+  startup?: Partial<ReffSettings['startup']>;
   input?: Partial<ReffSettings['input']>;
   window?: Pick<Partial<ReffSettings['window']>, 'rememberGeometry'>;
 };
