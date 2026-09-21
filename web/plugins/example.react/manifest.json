@@ -2,6 +2,8 @@
   "manifestVersion": 1,
   "id": "example.react",
   "name": "React 接入示例",
+  "localizedName": {"zh-CN": "React 接入示例", "en-US": "React Integration Example"},
+  "author": "REFF Team",
   "version": "0.1.0",
   "reffApi": ">=0.1.0 <0.2.0",
   "games": ["*"],

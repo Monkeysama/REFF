@@ -5,6 +5,7 @@
 #include "../native/plugin/mouse_click.hpp"
 #include "../native/plugin/settings.hpp"
 #include "../native/plugin/keyboard_capture.hpp"
+#include "../native/plugin/keyboard_event.hpp"
 #include "../native/plugin/game_profile.hpp"
 #include "ime_session.hpp"
 #include <iostream>
@@ -151,6 +152,8 @@ int main() {
         require(!reff::should_block_keyboard(true, true, false), "keyboard passthrough");
         require(reff::should_block_keyboard(true, true, true), "text focus overrides keyboard passthrough");
         require(!reff::should_block_keyboard(false, false, true), "hidden panel releases keyboard");
+        require(reff::cef_keyboard_modifiers(false, true, false) == 4, "control modifier uses the CEF control bit");
+        require(reff::cef_keyboard_modifiers(true, true, true, true, true) == 94, "combined input modifiers preserve every CEF flag");
         // Core 设置必须拒绝未知字段、原子落盘，并按客户区比例恢复窗口几何。
         {
             const auto directory = std::filesystem::temp_directory_path() / (L"reff-settings-test-" + std::to_wstring(GetCurrentProcessId()));

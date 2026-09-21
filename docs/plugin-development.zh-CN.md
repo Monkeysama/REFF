@@ -21,6 +21,8 @@ reframework/autorun/<plugin-id>.lua
   "manifestVersion": 1,
   "id": "author.example",
   "name": "Example Plugin",
+  "localizedName": {"zh-CN": "示例插件", "en-US": "Example Plugin"},
+  "author": "Plugin Author",
   "version": "1.0.0",
   "reffApi": ">=0.1.0 <0.2.0",
   "games": ["*"],
@@ -30,7 +32,7 @@ reframework/autorun/<plugin-id>.lua
 }
 ```
 
-`games` 使用 REFramework 的 `target_name`，通用页面可使用 `*`。通配符只控制页面发现，不会绕过 REFF Core 的游戏兼容门控。
+`name` 是缺省名称，`localizedName` 可提供 `zh-CN` 与 `en-US` 等语言名称，`author` 填写插件作者。REFF 会在左侧导航、设置页插件清单和右侧标题栏中显示这些元数据。`games` 使用 REFramework 的 `target_name`，通用页面可使用 `*`。通配符只控制页面发现，不会绕过 REFF Core 的游戏兼容门控。
 
 UI 支持两种模式：
 

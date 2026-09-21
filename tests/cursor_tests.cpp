@@ -62,11 +62,26 @@ int main() {
         input.begin(1920, 1080, 960, 540);
         for (int i = 1; i <= 3; ++i) input.raw(5, 0, 960, 540, i);
         require(input.relative() && input.cursor.position() == std::pair{975, 540}, "recenter evidence must retain raw motion");
+        // 面板关闭后重新打开不能丢失已经确认的相对模式，也不能被实体中心坐标覆盖虚拟位置。
+        input.resume(1920, 1080, 960, 540);
+        require(input.relative() && input.cursor.position() == std::pair{975, 540}, "reopening locked gameplay must preserve the virtual cursor");
+        input.raw(5, 0, 960, 540, 10);
+        require(input.cursor.position() == std::pair{980, 540}, "reopened gameplay must consume the first raw delta immediately");
         input.system_position(960, 540);
-        require(input.cursor.position() == std::pair{975, 540}, "warp WM_MOUSEMOVE must not reset relative position");
+        require(input.cursor.position() == std::pair{980, 540}, "warp WM_MOUSEMOVE must not reset relative position");
         input.raw(2, 0, 1100, 600, 100);
         input.raw(2, 0, 1150, 600, 260);
         require(!input.relative() && input.cursor.position() == std::pair{1150, 600}, "unlocked pointer must return to exact system coordinates");
+        // 首次在游玩状态打开时，中心锁定本身足以进入相对模式，不再等待三次移动样本。
+        reff::CursorInput first_open;
+        first_open.resume(1920, 1080, 960, 540);
+        first_open.raw(4, -3, 960, 540, 1);
+        require(first_open.relative() && first_open.cursor.position() == std::pair{964, 537}, "first locked open must avoid the recenter detection delay");
+        // 已确认过相对模式后若在菜单中重新打开，应立即采用当前自由指针坐标。
+        input.begin(1920, 1080, 960, 540);
+        for (int i = 1; i <= 3; ++i) input.raw(5, 0, 960, 540, i);
+        input.resume(1920, 1080, 420, 360);
+        require(!input.relative() && input.cursor.position() == std::pair{420, 360}, "reopening an unlocked menu must use the system cursor");
         input.begin(1920, 1080, 1919, 500);
         for (int i = 1; i <= 10; ++i) input.raw(10, 0, 1919, 500, i);
         require(!input.relative(), "desktop edge clipping is not game recentering");

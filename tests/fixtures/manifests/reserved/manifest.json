@@ -2,6 +2,7 @@
   "manifestVersion": 1,
   "id": "reff.settings",
   "name": "Reserved",
+  "author": "REFF Tests",
   "version": "0.1.0",
   "reffApi": ">=0.1.0 <0.2.0",
   "games": ["MHWILDS"],

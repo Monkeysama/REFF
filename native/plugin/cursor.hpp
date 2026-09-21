@@ -113,9 +113,19 @@ private:
 class CursorInput {
 public:
     VirtualCursor cursor;
+    // 新输入源从明确的系统坐标开始；绝对 Raw Input 设备切换必须清除旧的相对模式。
     void begin(int width, int height, int x, int y) {
         cursor.set_bounds(width, height); cursor.set_position(x, y);
         relative_ = false; centered_ = 0; distance_ = 0; away_since_ = 0;
+    }
+    // 面板重新打开时恢复当前输入语义。中心锁定表示游戏正在使用相对鼠标，不能先让系统回中坐标覆盖虚拟位置。
+    void resume(int width, int height, int system_x, int system_y) {
+        const bool was_relative = relative_;
+        cursor.set_bounds(width, height);
+        const bool centered = is_centered(system_x, system_y);
+        relative_ = centered;
+        centered_ = 0; distance_ = 0; away_since_ = 0;
+        if (!was_relative || !centered) cursor.set_position(system_x, system_y);
     }
     bool relative() const { return relative_; }
     // 系统事件只在自由模式更新位置；回中心引发的 WM_MOUSEMOVE 不得覆盖相对模式坐标。
@@ -123,7 +133,7 @@ public:
     void raw(int dx, int dy, int system_x, int system_y, std::uint64_t now) {
         if (!dx && !dy) return;
         const auto [width, height] = cursor.bounds();
-        const bool center = std::abs(system_x - width / 2) <= 2 && std::abs(system_y - height / 2) <= 2;
+        const bool center = is_centered(system_x, system_y);
         if (!relative_) {
             if (center) {
                 if (!centered_) { candidate_x_ = system_x; candidate_y_ = system_y; }
@@ -146,6 +156,10 @@ public:
         }
     }
 private:
+    bool is_centered(int x, int y) const {
+        const auto [width, height] = cursor.bounds();
+        return std::abs(x - width / 2) <= 2 && std::abs(y - height / 2) <= 2;
+    }
     bool relative_{};
     int centered_{}, candidate_x_{}, candidate_y_{};
     double distance_{};

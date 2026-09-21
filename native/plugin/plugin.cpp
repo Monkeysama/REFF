@@ -8,6 +8,7 @@
 #include "mouse_click.hpp"
 #include "settings.hpp"
 #include "keyboard_capture.hpp"
+#include "keyboard_event.hpp"
 #include "game_profile.hpp"
 // 预览构建标识：确保发布候选包重新生成 Core DLL，便于核对构建时间与版本。
 #include <windowsx.h>
@@ -366,14 +367,15 @@ void synchronize_virtual_cursor_bounds(HWND window) {
         runtime->cursor_input.cursor.set_bounds(client.right - client.left, client.bottom - client.top);
 }
 
-// F8 打开时读取实体鼠标位置作为虚拟光标起点；游玩状态由 Raw Input 后续维护，不依赖会被游戏重置的实体坐标。
+// 快捷键打开时恢复输入模式：游玩状态保留虚拟位置，菜单状态才使用实体鼠标位置。
+// 实体指针已锁在客户区中心时立即采用 Raw Input 增量，避免重新判定期间把光标向中心拉拽。
 void synchronize_virtual_cursor_position(HWND window) {
     synchronize_virtual_cursor_bounds(window);
     POINT cursor{};
     if (window && GetCursorPos(&cursor) && ScreenToClient(window, &cursor))
-        runtime->cursor_input.begin(runtime->cursor_input.cursor.bounds().first, runtime->cursor_input.cursor.bounds().second, cursor.x, cursor.y);
+        runtime->cursor_input.resume(runtime->cursor_input.cursor.bounds().first, runtime->cursor_input.cursor.bounds().second, cursor.x, cursor.y);
     else
-        runtime->cursor_input.begin(runtime->cursor_input.cursor.bounds().first, runtime->cursor_input.cursor.bounds().second,
+        runtime->cursor_input.resume(runtime->cursor_input.cursor.bounds().first, runtime->cursor_input.cursor.bounds().second,
             runtime->cursor_input.cursor.bounds().first / 2, runtime->cursor_input.cursor.bounds().second / 2);
     runtime->pointer_in_panel = false;
     runtime->last_panel_x = runtime->last_panel_y = -1;
@@ -1242,12 +1244,9 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
         return false;
     }
     try {
-        int modifiers = 0;
-        if (GetKeyState(VK_SHIFT) & 0x8000) modifiers |= 1 << 1;
-        if (GetKeyState(VK_CONTROL) & 0x8000) modifiers |= 1 << 2;
-        if (GetKeyState(VK_MENU) & 0x8000) modifiers |= 1 << 3;
-        if (GetKeyState(VK_LBUTTON) & 0x8000) modifiers |= 1 << 4;
-        if (GetKeyState(VK_RBUTTON) & 0x8000) modifiers |= 1 << 6;
+        const int modifiers = cef_keyboard_modifiers(
+            GetKeyState(VK_SHIFT) < 0, GetKeyState(VK_CONTROL) < 0, GetKeyState(VK_MENU) < 0,
+            GetKeyState(VK_LBUTTON) < 0, GetKeyState(VK_RBUTTON) < 0);
         if (message == WM_INPUT) {
             // WM_INPUT 的 lParam 是临时 HRAWINPUT，只能在本次窗口消息内读取；不跨线程保存。
             bool input_passthrough = runtime->mouse_passthrough.load();

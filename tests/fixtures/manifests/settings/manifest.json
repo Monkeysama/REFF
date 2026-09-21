@@ -2,6 +2,8 @@
   "manifestVersion": 1,
   "id": "example.settings",
   "name": "设置示例",
+  "localizedName": {"zh-CN": "设置示例", "en-US": "Settings Example"},
+  "author": "REFF Tests",
   "version": "0.1.0",
   "reffApi": ">=0.1.0 <0.2.0",
   "games": ["*"],

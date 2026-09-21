@@ -16,6 +16,9 @@ int main(int argc, char** argv) {
         if (summary.contains("root") || summary.value("entry", "") != "ui/index.html" ||
             summary.value("url", "") != "reff://plugin/example.settings/ui/index.html" ||
             summary.value("mode", "") != "component") throw std::runtime_error("summary leaked path or UI mode");
+        if (summary.value("author", "") != "REFF Tests" ||
+            summary["localizedName"].value("en-US", "") != "Settings Example")
+            throw std::runtime_error("localized manifest metadata mismatch");
         if (summary["schema"].value("load", "") != "example.settings.get" ||
             summary["schema"].value("changeEvent", "") != "example.settings.changed")
             throw std::runtime_error("schema state contract mismatch");

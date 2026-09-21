@@ -54,6 +54,7 @@ reframework/data/REFF/log/          REFF 专用诊断日志
 ```json
 {
   "name": "Interaction Example",
+  "author": "Plugin Author",
   "localizedName": {
     "zh-CN": "Vue 3 接入示例",
     "en-US": "Vue 3 Integration Example"

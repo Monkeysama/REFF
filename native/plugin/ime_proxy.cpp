@@ -1,4 +1,5 @@
 #include "ime_proxy.hpp"
+#include "keyboard_event.hpp"
 #include <imm.h>
 #include <algorithm>
 #include <string>
@@ -254,7 +255,7 @@ void ImeProxy::handle_ime_end() {
     if (sender_) sender_({{"type", "ime"}, {"action", "cancel"}});
 }
 
-// 普通英文输入仍通过 CEF 键盘事件处理；IME 确认文本只能经 ImeCommitText 进入 CEF 一次。
+// 普通英文输入和编辑快捷键仍通过 CEF 键盘事件处理；IME 确认文本只能经 ImeCommitText 进入 CEF 一次。
 void ImeProxy::send_key(UINT message, WPARAM key, LPARAM native) {
     if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && hotkey_ && (key == VK_ESCAPE || key >= 1 && key <= 255)) {
         // 代理窗口只拦截真正由快捷键回调处理的按键；普通按键继续交给 CEF。
@@ -265,7 +266,10 @@ void ImeProxy::send_key(UINT message, WPARAM key, LPARAM native) {
     if (message == WM_IME_CHAR) return;
     // 仅屏蔽本次 IME 确认尾随的 WM_CHAR；英文输入没有先前确认文本，仍按普通键盘事件发送。
     if (message == WM_CHAR && suppress_chars_ > 0) { --suppress_chars_; return; }
-    if (sender_) sender_({{"type", "key"}, {"key", static_cast<int>(key)}, {"native", static_cast<int>(native)},
+    // 透明 EDIT 取得焦点后，所有输入都走本路径；必须携带 CEF 修饰位，否则 Ctrl+C/V/A 会退化为普通字母。
+    const int modifiers = cef_keyboard_modifiers(
+        GetKeyState(VK_SHIFT) < 0, GetKeyState(VK_CONTROL) < 0, GetKeyState(VK_MENU) < 0);
+    if (sender_) sender_({{"type", "key"}, {"key", static_cast<int>(key)}, {"native", static_cast<int>(native)}, {"modifiers", modifiers},
         {"action", message == WM_KEYUP || message == WM_SYSKEYUP ? "up" : (message == WM_CHAR || message == WM_IME_CHAR) ? "char" : "down"}});
 }
 

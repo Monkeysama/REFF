@@ -6,6 +6,11 @@ import { translate } from '../../locales';
 
 const props = defineProps<{ plugins: LoadedPlugin[]; language: ReffLanguage; version: string }>();
 const t = computed(() => (key: Parameters<typeof translate>[1]) => translate(props.language, key));
+
+// 设置页插件清单与左侧导航共用 manifest 本地化回退顺序。
+function pluginName(plugin: LoadedPlugin): string {
+  return plugin.localizedName?.[props.language] || plugin.localizedName?.['en-US'] || plugin.name;
+}
 </script>
 
 <template>
@@ -16,7 +21,7 @@ const t = computed(() => (key: Parameters<typeof translate>[1]) => translate(pro
       <div class="plugin-tags"><el-tag size="small" effect="plain">{{ t('official') }}</el-tag><el-tag size="small" type="success">{{ t('loaded') }}</el-tag></div>
     </div>
     <div v-for="plugin in plugins" :key="plugin.id" class="plugin-row">
-      <div><strong>{{ plugin.name }}</strong><span>{{ plugin.id }} · v{{ plugin.version }}</span></div>
+      <div><strong>{{ pluginName(plugin) }}</strong><span>{{ plugin.id }} · v{{ plugin.version }}<template v-if="plugin.author"> · {{ t('author') }}：{{ plugin.author }}</template></span></div>
       <div class="plugin-tags"><el-tag size="small" effect="plain">{{ plugin.mode === 'component' ? t('component') : t('isolated') }}</el-tag><el-tag size="small" type="success">{{ t('loaded') }}</el-tag></div>
     </div>
     <div v-if="plugins.length === 0" class="empty">{{ t('noExternalPlugins') }}</div>

@@ -14,7 +14,7 @@ const messages = {
     input: '输入', mousePassthrough: '鼠标输入穿透', keyboardPassthrough: '键盘输入穿透',
     passthroughWarning: '穿透后，操作面板时游戏也可能响应同一输入。文本输入、窗口移动和缩放仍由 REFF 独占。',
     window: '窗口', rememberGeometry: '记住窗口位置和大小',
-    plugins: '已加载插件', official: '官方', component: '组件', isolated: '隔离页面', loaded: '已载入',
+    plugins: '已加载插件', official: '官方', component: '组件', isolated: '隔离页面', loaded: '已载入', author: '作者',
     noExternalPlugins: '当前没有加载第三方插件', restoreDefaults: '恢复默认设置', saving: '正在保存',
   },
   'en-US': {
@@ -29,7 +29,7 @@ const messages = {
     input: 'Input', mousePassthrough: 'Pass mouse input to game', keyboardPassthrough: 'Pass keyboard input to game',
     passthroughWarning: 'The game may react while you operate the panel. Text input, window movement, and resizing remain exclusive to REFF.',
     window: 'Window', rememberGeometry: 'Remember window position and size',
-    plugins: 'Loaded plugins', official: 'Official', component: 'Component', isolated: 'Isolated page', loaded: 'Loaded',
+    plugins: 'Loaded plugins', official: 'Official', component: 'Component', isolated: 'Isolated page', loaded: 'Loaded', author: 'Author',
     noExternalPlugins: 'No third-party plugins are loaded', restoreDefaults: 'Restore defaults', saving: 'Saving',
   },
 } as const;

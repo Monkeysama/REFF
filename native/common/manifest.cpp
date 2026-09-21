@@ -20,6 +20,20 @@ bool string_array(const Json& object, const char* key, std::vector<std::string>&
     return true;
 }
 
+// 插件名称语言表只允许短字符串值，避免把任意嵌套 manifest 数据暴露给网页。
+bool localized_names(const Json& object, Json& result) {
+    if (!object.contains("localizedName")) return true;
+    const auto& names = object["localizedName"];
+    if (!names.is_object() || names.size() > 16) return false;
+    for (const auto& [language, value] : names.items()) {
+        if (language.empty() || language.size() > 32 || !value.is_string()) return false;
+        const auto name = value.get<std::string>();
+        if (name.empty() || name.size() > 128) return false;
+        result[language] = name;
+    }
+    return true;
+}
+
 bool safe_relative(const std::string& value) {
     std::filesystem::path path = std::filesystem::u8path(value);
     return !value.empty() && !path.is_absolute() && value.find('\\') == std::string::npos &&
@@ -70,6 +84,8 @@ std::optional<PluginManifest> load_manifest(const std::filesystem::path& file, s
         if (result.id.starts_with("reff.")) { error = "reff.* 为系统插件保留命名空间"; return std::nullopt; }
         if (!text(object, "name", result.name, 128) || !text(object, "version", result.version, 32) ||
             !text(object, "reffApi", result.reff_api, 64)) { error = "基本字段缺失"; return std::nullopt; }
+        if (!localized_names(object, result.localized_name)) { error = "localizedName 不合法"; return std::nullopt; }
+        if (object.contains("author") && !text(object, "author", result.author, 128)) { error = "author 不合法"; return std::nullopt; }
         if (!object.contains("games") || !string_array(object, "games", result.games) || result.games.empty()) { error = "games 不合法"; return std::nullopt; }
         if (!object.contains("methods") || !string_array(object, "methods", result.methods)) { error = "methods 不合法"; return std::nullopt; }
         if (object.contains("events") && !string_array(object, "events", result.events)) { error = "events 不合法"; return std::nullopt; }
@@ -131,7 +147,8 @@ std::vector<PluginManifest> scan_manifests(const std::filesystem::path& director
 
 // 前端只获得经过清洗的公开字段，entry 仍需由宿主按 root 重新解析。
 Json manifest_summary(const PluginManifest& manifest) {
-    return {{"id", manifest.id}, {"name", manifest.name}, {"version", manifest.version},
+    return {{"id", manifest.id}, {"name", manifest.name}, {"localizedName", manifest.localized_name},
+            {"author", manifest.author}, {"version", manifest.version},
             {"kind", manifest.kind}, {"mode", manifest.ui_mode}, {"entry", manifest.entry}, {"methods", manifest.methods},
             {"events", manifest.events}, {"fallback", manifest.fallback},
             {"schema", manifest.schema},

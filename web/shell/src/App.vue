@@ -12,6 +12,7 @@ type PluginSummary = {
   id: string;
   name: string;
   localizedName?: Partial<Record<'zh-CN' | 'en-US', string>>;
+  author?: string;
   version: string;
   kind: 'page' | 'schema';
   mode: 'component' | 'isolated-page';
@@ -72,6 +73,8 @@ const activeMenu = computed(() => selectedPluginId.value ? `plugin:${selectedPlu
 const t = computed(() => (key: Parameters<typeof translate>[1]) => translate(settings.value.language, key));
 const elementLocale = computed(() => REFF_ELEMENT_LOCALES[settings.value.language]);
 const currentPageTitle = computed(() => settingsActive.value ? t.value('settings') : pluginName(activePlugin.value) || t.value('pluginFallback'));
+const currentPageVersion = computed(() => settingsActive.value ? reffVersion : activePlugin.value?.version || '');
+const currentPageAuthor = computed(() => settingsActive.value ? '' : activePlugin.value?.author || '');
 const statusText = computed(() => ready.value ? t.value('connected') : t.value('waiting'));
 let settingsQueue: Promise<void> = Promise.resolve();
 
@@ -485,11 +488,17 @@ onBeforeUnmount(async () => {
       <div class="status"><i :class="{ ready }"/> {{ statusText }}</div>
     </el-aside>
     <section class="reff-workspace">
-      <div class="window-bar"><strong>{{ currentPageTitle }}</strong></div>
+      <div class="window-bar">
+        <div class="window-title">
+          <strong>{{ currentPageTitle }}</strong>
+          <span class="window-version">v{{ currentPageVersion }}</span>
+          <span v-if="currentPageAuthor" class="window-author">{{ t('author') }}：{{ currentPageAuthor }}</span>
+        </div>
+      </div>
       <el-main class="workspace-content">
         <SettingsPanel v-if="settingsActive" :settings="settings" :plugins="plugins" :version="reffVersion" :saving="savingSettings" @change="updateSettings" @reset="resetSettings" @hotkey-capture="setHotkeyCapture" />
         <div v-else-if="isolatedPlugin" class="isolated-host">
-          <iframe :key="isolatedReloadKey" ref="isolatedFrame" :src="isolatedPluginUrl" :title="isolatedPlugin.name" />
+          <iframe :key="isolatedReloadKey" ref="isolatedFrame" :src="isolatedPluginUrl" :title="pluginName(isolatedPlugin)" />
         </div>
         <SchemaPanel
           v-else-if="selectedSchemaPlugin"
@@ -531,7 +540,11 @@ onBeforeUnmount(async () => {
 .status i.ready { background: var(--reff-accent); }
 .reff-workspace { flex: 1; height: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: transparent; }
 .window-bar { width: 100%; height: 56px; flex: 0 0 56px; padding: 0 22px; box-sizing: border-box; display: flex; align-items: center; border-bottom: 1px solid var(--reff-border); background: rgb(var(--reff-surface-rgb) / calc(var(--reff-panel-opacity) * .96)); color: var(--reff-text); -webkit-backdrop-filter: blur(var(--reff-surface-blur)) saturate(1.08); backdrop-filter: blur(var(--reff-surface-blur)) saturate(1.08); }
-.window-bar strong { min-width: 0; overflow: hidden; font-size: calc(17px * var(--reff-text-scale)); letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
+.window-title { min-width: 0; display: flex; align-items: baseline; }
+.window-title strong { min-width: 0; overflow: hidden; font-size: calc(17px * var(--reff-text-scale)); letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
+.window-version, .window-author { flex: 0 0 auto; color: var(--reff-muted); font-size: calc(12px * var(--reff-text-scale)); letter-spacing: 0; white-space: nowrap; }
+.window-version { margin-left: 10px; }
+.window-author { margin-left: 14px; }
 .workspace-content { flex: 1; width: 100%; max-width: none; min-width: 0; min-height: 0; margin: 0; padding: 32px 40px; display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain; background: rgb(var(--reff-bg-rgb) / var(--reff-panel-opacity)); -webkit-backdrop-filter: blur(var(--reff-surface-blur)) saturate(1.08); backdrop-filter: blur(var(--reff-surface-blur)) saturate(1.08); }
 .workspace-content > * { flex-shrink: 0; }
 .isolated-host { flex: 1; width: 100%; min-width: 0; min-height: 0; display: flex; }

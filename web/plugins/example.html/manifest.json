@@ -2,6 +2,8 @@
   "manifestVersion": 1,
   "id": "example.html",
   "name": "原生 HTML 接入示例",
+  "localizedName": {"zh-CN": "原生 HTML 接入示例", "en-US": "Vanilla HTML Integration Example"},
+  "author": "REFF Team",
   "version": "0.1.0",
   "reffApi": ">=0.1.0 <0.2.0",
   "games": ["*"],

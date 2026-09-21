@@ -37,6 +37,8 @@ export type SettingsPatch = {
 export type LoadedPlugin = {
   id: string;
   name: string;
+  localizedName?: Partial<Record<ReffLanguage, string>>;
+  author?: string;
   version: string;
   mode: 'component' | 'isolated-page';
 };

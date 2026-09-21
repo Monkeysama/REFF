@@ -13,6 +13,9 @@ namespace reff {
 struct PluginManifest {
     std::string id;
     std::string name;
+    // 本地化名称只保存经过校验的语言映射；Shell 根据全局语言选择并回退到默认名称。
+    Json localized_name{Json::object()};
+    std::string author;
     std::string version;
     std::string reff_api;
     std::vector<std::string> games;
