@@ -10,27 +10,27 @@ REFF 使用一套通用 CEF 宿主、Web Shell、Lua SDK 和插件协议。原�
 
 ## 当前矩阵
 
-| 游戏 | target_name | 渲染器 | 键鼠输入 | 状态 |
-| --- | --- | --- | --- | --- |
-| Monster Hunter Wilds | `MHWILDS` | D3D12 | Win32、Raw Input、DirectInput 键盘过滤、透明 IME 代理 | 已验证 |
-| Monster Hunter Rise | `MHRISE` | D3D12 | Win32、Raw Input、DirectInput 键盘过滤、透明 IME 代理 | 已验证 |
-| Resident Evil 4 | `RE4` | D3D12 | Win32、Raw Input、透明 IME 代理；DirectInput 键盘过滤禁用 | 已验证 |
-| Resident Evil Village | `RE8` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Dragon's Dogma 2 | `DD2` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Street Fighter 6 | `SF6` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Resident Evil 2 | `RE2` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Resident Evil 3 | `RE3` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Resident Evil 7 | `RE7` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Resident Evil Requiem | `RE9` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Dead Rising Deluxe Remaster | `DRDR` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Ghosts 'n Goblins Resurrection | `GGR` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Apollo Justice: Ace Attorney Trilogy | `GS456` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Kunitsu-Gami: Path of the Goddess | `KUNITSU` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Onimusha 2: Samurai's Destiny | `ONIMUSHA2` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Monster Hunter Stories 3: Twisted Reflection | `MHSTORIES3` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Mega Man Star Force Legacy Collection | `STARFORCE` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Pragmata | `PRAGMATA` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
-| Onimusha: Way of the Sword | `ONIMUSHA_WOTS` | D3D12 | Win32/Raw Input 候选；DirectInput 在取得证据前禁用 | 实验候选，仅实验构建开放 |
+| 游戏 | target_name | 渲染器 | 状态 |
+| --- | --- | --- | --- |
+| Monster Hunter Wilds | `MHWILDS` | D3D12  | 已验证 |
+| Monster Hunter Rise | `MHRISE` | D3D12  | 已验证 |
+| Resident Evil 4 | `RE4` | D3D12  | 已验证 |
+| Resident Evil Village | `RE8` | D3D12 | 实验候选，仅实验构建开放 |
+| Dragon's Dogma 2 | `DD2` | D3D12 | 实验候选，仅实验构建开放 |
+| Street Fighter 6 | `SF6` | D3D12 | 实验候选，仅实验构建开放 |
+| Resident Evil 2 | `RE2` | D3D12 | 实验候选，仅实验构建开放 |
+| Resident Evil 3 | `RE3` | D3D12 | 实验候选，仅实验构建开放 |
+| Resident Evil 7 | `RE7` | D3D12 | 实验候选，仅实验构建开放 |
+| Resident Evil Requiem | `RE9` | D3D12 | 实验候选，仅实验构建开放 |
+| Dead Rising Deluxe Remaster | `DRDR` | D3D12 | 实验候选，仅实验构建开放 |
+| Ghosts 'n Goblins Resurrection | `GGR` | D3D12 | 实验候选，仅实验构建开放 |
+| Apollo Justice: Ace Attorney Trilogy | `GS456` | D3D12 | 实验候选，仅实验构建开放 |
+| Kunitsu-Gami: Path of the Goddess | `KUNITSU` | D3D12 | 实验候选，仅实验构建开放 |
+| Onimusha 2: Samurai's Destiny | `ONIMUSHA2` | D3D12 | 实验候选，仅实验构建开放 |
+| Monster Hunter Stories 3: Twisted Reflection | `MHSTORIES3` | D3D12 | 实验候选，仅实验构建开放 |
+| Mega Man Star Force Legacy Collection | `STARFORCE` | D3D12 | 实验候选，仅实验构建开放 |
+| Pragmata | `PRAGMATA` | D3D12 | 实验候选，仅实验构建开放 |
+| Onimusha: Way of the Sword | `ONIMUSHA_WOTS` | D3D12 | 实验候选，仅实验构建开放 |
 
 正式 Runtime 只开放已验证的游戏。其余必须使用显式启用实验游戏的开发构建，因没有完成游戏内验收，不属于正式支持。未列出的目标、仅识别目标、已禁用目标以及使用 D3D11 的运行实例都会在注册回调和安装输入 Hook 前拒绝初始化，并在 `data/REFF/log/compatibility.log` 记录原因。不能仅凭 REFramework 支持某款游戏就认定 REFF 可用。
 
