@@ -15,3 +15,5 @@ docs/*
 !docs/compatibility.zh-CN.md
 !docs/plugin-development.zh-CN.md
 
+!docs/troubleshooting.zh-CN.md
+!docs/build.zh-CN.md
