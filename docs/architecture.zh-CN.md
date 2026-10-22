@@ -1,26 +1,26 @@
 # REFF 运行时架构
 
-本文描述 REFF 的运行时架构、线程边界、资源所有权和插件页面模型。
+项目统一展示名称为 **REFF — REFramework Web UI Runtime**，其中 REFF 是独立品牌名。本文描述其运行时架构、线程边界、资源所有权和插件页面模型。
 
-当前 Shell 采用左侧插件列表、右侧页面容器。`reff.settings` 是唯一固定的 Core 系统项并始终排在第一位，其余页面完全来自动态 manifest。右侧客户区会填满 REFF 窗口分配的可用尺寸；Shell 只保留统一标题栏，插件页面获得其下方的完整内容视口，不能使用固定最大宽度假定窗口尺寸。manifest 通过 `ui.mode` 选择 `component` 或 `isolated-page`：前者由 Shell 的通用 Schema 渲染器承载，后者使用受控 iframe 页面。Shell 不持有第三方插件业务状态。身份由宿主绑定真实页面代次，切页前清理旧订阅。插件资源根固定到 manifest 所在目录，方法和事件由 manifest 与 Lua 注册表共同授权。原生 Present 线程维护可移动、可缩放客户区矩形，CEF 视口与共享帧按最新尺寸调度。
+当前 Shell 采用左侧插件列表、右侧页面容器。`reff.settings` 是唯一固定的 Core 系统项并始终排在第一位，其余页面完全来自动态 manifest。右侧客户区会填满 REFF 窗口分配的可用尺寸；Shell 只保留统一标题栏，插件页面获得其下方的完整内容视口，不能使用固定最大宽度假定窗口尺寸。manifest 通过 `ui.mode` 选择 `component` 或 `isolated-page`：前者由 Shell 的通用 Schema 渲染器承载，后者使用受控 iframe 页面。Shell 不持有第三方插件业务状态。身份由宿主绑定真实页面代次，切页前清理旧订阅。插件资源根固定到 manifest 所在目录，方法和事件由 manifest 与 Lua 注册表共同授权。原生 Present 线程维护可移动、可缩放客户区矩形，WebView2 视口与共享帧按最新尺寸调度。
 
 ## 1. 进程与模块
 
 ```mermaid
 flowchart LR
-    UI[本地插件网页] <-->|JS 消息| CEF[CEF 宿主及子进程]
-    CEF <-->|控制消息：命名管道| Bridge[REFF.dll 桥接]
+    UI[本地插件网页] <-->|原生绑定的页面消息| Browser[WebView2 宿主及子进程]
+    Browser <-->|控制消息：命名管道| Bridge[REFF.dll 桥接]
     Bridge <-->|有界请求队列| Lua[Lua 适配层]
     Lua <--> REF[REFramework / 游戏]
-    CEF -->|画面：共享内存| Render[REFF.dll DX12 合成]
+    Browser -->|画面：共享内存| Render[REFF.dll DX12 合成]
     Render --> Game[游戏画面]
     Input[游戏输入] --> Router[REFF 输入路由]
-    Router -->|坐标、按键、焦点| CEF
+    Router -->|坐标、按键、焦点| Browser
 ```
 
-游戏进程中的 REFF.dll 负责 REFramework 对接、输入路由、图形合成、IPC 接收及执行调度。浏览器主循环运行在独立宿主中，CEF renderer/GPU 等子进程按内核要求启动，不显示桌面浏览器界面。
+游戏进程中的 REFF.dll 负责 REFramework 对接、输入路由、图形合成、IPC 接收及执行调度。`reff-webview2-host.exe` 在专属 STA 线程拥有 WebView2、CompositionController、Windows Composition visual 和捕获资源；IPC 工作线程只投递消息。Evergreen Runtime 使用系统共享安装，不显示桌面浏览器界面。
 
-CEF 子进程模型与沙箱能力按锁定版本的官方要求配置，不把禁用沙箱作为默认的集成捷径。独立宿主只隔离一部分浏览器故障，不能隔离原生插件或游戏调用产生的崩溃。
+子进程与沙箱采用 WebView2 默认机制，不通过禁用沙箱接入。宿主与游戏 Job Object 绑定。独立宿主只隔离一部分浏览器故障，不能隔离原生插件或游戏调用产生的崩溃。
 
 | 模块 | 职责 | 不承担的工作 |
 | --- | --- | --- |
@@ -29,7 +29,7 @@ CEF 子进程模型与沙箱能力按锁定版本的官方要求配置，不把�
 | Input router | 显隐、焦点、鼠标/键盘/IME 转发和游戏输入协调 | 自动保证所有游戏输入机制兼容 |
 | Bridge / scheduler | 会话、请求校验、有界队列、超时、结果返回 | 在 IPC 线程直接执行 Lua |
 | Lua SDK | 插件注册、handler/事件、就绪状态 | 把游戏 Hook 同步转交网页 |
-| Browser host | CEF 生命周期、本地资源加载、页面通信、画面输出 | 直接持有游戏对象地址 |
+| Browser host | WebView2 生命周期、本地资源加载、页面通信、画面输出 | 直接持有游戏对象地址 |
 | Web SDK / Shell | Promise 调用、订阅、插件页面管理；Shell 内部统一承载 Vue 3、Vite 与 Element Plus 组件 | 直接读写游戏内存；插件重复打包组件库 |
 | Core settings | 系统设置校验、持久化、输入路由快照和窗口几何恢复 | 翻译第三方页面；在 Present/窗口线程执行磁盘 I/O |
 
@@ -38,7 +38,7 @@ CEF 子进程模型与沙箱能力按锁定版本的官方要求配置，不把�
 1. REFramework 加载通用 DLL；Core 从初始化参数读取 `target_name`，选择游戏能力档案并检查渲染器。未认证组合在安装游戏输入 Hook 前停止初始化。
 2. 注册必要回调，准备会话和桥接。DllMain 仅做必要的轻量操作。
 3. Lua 状态可用后安装桥接入口；同时处理 REFF 在 Lua 状态创建前后初始化的情况。
-4. 默认首次打开面板时启动宿主；记录冷启动时间。若保留宿主，则后续为热打开。
+4. 按设置延迟预热或首次打开时启动宿主；预热保持隐藏。系统 build、稳定版 Runtime 及所需接口检查失败时安全关闭，不自动安装依赖。
 5. 管道握手验证协议、会话和 Runtime 版本，然后加载 Shell 与已注册插件。
 6. 页面和桥接均就绪后，通知插件可以接管 UI。
 7. 游戏退出时使请求失效、解除输入捕获、通知宿主退出并回收资源；禁止在 DllMain 中等待复杂关闭流程。
@@ -49,7 +49,9 @@ CEF 子进程模型与沙箱能力按锁定版本的官方要求配置，不把�
 
 公共窗口使用可配置的逻辑尺寸和物理像素尺寸；实际渲染像素尺寸按 DPI 计算，窗口逻辑尺寸与物理像素尺寸不能混用。
 
-CPU 路径：CEF OnPaint → 共享内存缓冲 → 游戏侧读取完整的一代画面 → GPU 上传 → Present 回调中合成。选定版本的通道顺序、透明度约定和色彩空间必须实际核实，建议显式使用 BGRA8 和经确认的预乘 Alpha 规则。
+CPU 路径：WebView2 CompositionController → Windows Composition visual → GraphicsCaptureItem.CreateFromVisual → D3D11CaptureFramePool → BGRA 读回 → 共享内存 → 游戏侧 DX12 上传与合成。捕获目标为宿主自己的离屏 visual，透明输出，不捕获游戏或桌面，也不使用 CapturePreview 截图循环。当前 CPU 读回存在拷贝成本，共享 Runtime 的包体积收益不代表内存或 CPU 更低。
+
+视口更新保留一个进行中的 generation 和最新待处理尺寸；发布匹配尺寸、布局确认和 generation 的完整画面后才应用下一尺寸，避免连续拖动不断废弃未完成捕获。渲染回调不会等待网页布局。
 
 - 共享缓冲使用固定数量的槽位、序号和明确所有权；尺寸、stride、长度和 generation 必须校验。
 - 渲染线程不等待浏览器生产画面，没有新画面时复用已完成纹理。
@@ -77,11 +79,11 @@ Esc 优先交给页面关闭下拉框/内部弹层，无内部操作时关闭 RE
 
 Windows 消息拦截不能代表 Raw Input、轮询按键或 XInput 已被屏蔽。各游戏的实际输入路径需要分别验证；DirectInput 等能力由游戏档案选择，不能依赖 exe 名散落判断。中文 IME 包含组合文本、候选窗位置及焦点恢复，不能只验证英文字符输入。
 
-键盘和鼠标穿透是两个独立的 Core 开关。F8、Esc、窗口移动/缩放始终捕获；文本或 IME 聚焦期间键盘强制捕获。其余已转发给 CEF 的消息按开关决定是否继续交给游戏窗口过程。
+键盘和鼠标穿透是两个独立的 Core 开关。F8、Esc、窗口移动/缩放始终捕获；文本或 IME 聚焦期间键盘强制捕获。其余已转发给 WebView2 的消息按开关决定是否继续交给游戏窗口过程。
 
 ## 5. 调度与线程
 
-CEF 线程及 IPC 工作线程只校验和排队请求，不直接访问 Lua 状态、游戏对象或游戏 SDK。Lua/游戏 handler 在验证过的 application entry 阶段执行，阶段名称及适用操作由 adapter 和插件共同约定。
+WebView2 STA 线程及 IPC 工作线程只校验和排队请求，不直接访问 Lua 状态、游戏对象或游戏 SDK。Lua/游戏 handler 在验证过的 application entry 阶段执行，阶段名称及适用操作由 adapter 和插件共同约定。
 
 渲染回调只处理图形工作。禁止等待 JS 响应、执行磁盘读取、编译页面或进行长时间锁等待。Lua 互斥锁只能保护 Lua 并发访问，不能解决游戏方法的时序要求。
 
@@ -99,21 +101,24 @@ CEF 线程及 IPC 工作线程只校验和排队请求，不直接访问 Lua 状
 
 ## 7. 本地资源与通信边界
 
-正式运行只加载本地页面、字体、图标和 Element Plus 资源。Shell 使用 `reff://shell/...`，manifest 资源存放在 `reff/plugins/<plugin-id>/`；禁止 CDN、远程字体和运行时外部请求。
+正式运行只加载本地页面、字体、图标和 Element Plus 资源。Shell 使用 `reff://shell/...`，插件页面使用 `reff://<plugin-id>.plugin/...`，磁盘资源位于 `reff/plugins/<plugin-id>/`；不同插件具有不同 origin。禁止 CDN、远程字体和运行时外部请求。
 
 Shell 与插件页面使用独立来源的 frame；桥接身份由宿主根据真实 frame/注册关系绑定，不能信任消息中的 pluginId。限制导航、新窗口、下载、外部协议、远程请求及页面不需要的浏览器权限；CSP 与宿主请求检查共同执行。
+
+WebView2 的主页面与每个受控 iframe 各自绑定真实 Source、导航代次和随机 ticket。业务调用直接进入对应原生页面服务；Shell 的父页面消息代理仅承担输入坐标换算和界面偏好，不代理 iframe 业务权限。订阅本地句柄映射为原生唯一句柄，不能猜测或撤销其他文档的订阅。文档切换、脚本 epoch 更新、超时及断连均释放旧请求/订阅，不重放写操作。
 
 路径映射必须规范化，限制在已注册插件资源根目录，处理编码路径穿越及重解析点越界。JS 不直接读取命名管道凭证、共享内存句柄或任意磁盘路径。
 
 IPC 使用当前用户可访问的本机命名管道、按游戏进程区分的会话名和随机会话校验值；不得让一个游戏实例接到另一个实例。网页资源隔离不等于原生 Mod 沙箱。
 
-## 8. 拟议目录
+## 8. 目录职责
 
 开发目录按职责分层：
 
 ```text
 native/plugin/       REFF.dll 与 REFramework adapter
-native/host/         CEF 宿主
+native/webview2_host/ 正式入口、离屏捕获、页面服务、资源边界、键盘与运行时
+tests/webview2/      独立 DX12、故障、性能驱动与固定负载页面
 native/common/       协议与公共类型
 web/sdk/             无框架依赖的 TypeScript SDK
 web/shell/           Vue 3 + Vite + Element Plus 公共 Shell 源码
@@ -134,9 +139,15 @@ reframework/
   autorun/REFF.examples.lua      仅开发示例构建
   autorun/reff/                  Lua SDK 与桥接模块
   reff/ui/                       Shell 与公共前端资源
-  reff/runtime/                  CEF 运行依赖
+  reff/runtime/                  reff-webview2-host.exe，不含系统 Runtime
   reff/plugins/<plugin-id>/      manifest 与插件网页资源
   data/REFF/log/                 REFF 专用诊断日志
 ```
 
-CEF 私有依赖通过经过验证的 DLL 搜索/启动方式加载，不修改系统 PATH，不全局改变游戏进程 DLL 搜索策略。分包布局需要通过干净环境的启动验证，不能仅在开发机上验证。
+WebView2Loader 静态链接到宿主。用户数据目录为 `data/REFF/cache/webview2`，诊断为 `data/REFF/log/webview2`。安装包不包含系统 Runtime、缓存或历史备份。缺失依赖、旧系统、非稳定版及旧 Runtime 会被拒绝；实际最低环境的设备兼容性仍需对应机器验证。
+
+## 9. 分发与升级
+
+默认 CMake 与 PowerShell 构建选择 WebView2，并启用 IME。普通包与实验包不含示例；独立示例包包含构建结果和开发源码。每个核心包包含文件哈希清单、许可证、依赖版本、离线安装器及最小诊断工具。归档检查直接读取 ZIP，核对目录结构、逐文件哈希、后端排他性和 ≤30 MiB 的未压缩体积预算。
+
+安装器先校验包与目标，确认游戏已退出，再备份所有覆盖/清理项和旧清单。只删除旧清单中归属明确且内容未变的过期核心文件，保留用户设置、第三方插件、独立示例和已修改旧文件。失败回滚已触碰项；显式恢复使用同一游戏备份。备份不计入 REFF 分发体积，真实升级目录可能仍占用旧引擎空间。

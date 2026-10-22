@@ -4,17 +4,24 @@
     # 仅在传入此开关时调用 GitHub CLI 创建或更新 Release；默认只生成本地资产。
     [switch]$Publish,
     # 使用已有构建产物时跳过构建步骤，仍会重新生成 staging、压缩包和校验文件。
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [string]$ValidationFile=''
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'package-files.ps1')
 $repoRoot = Split-Path -Parent $PSScriptRoot
+# -File 在 Windows PowerShell 5.1 绑定参数时尚未提供脚本目录，正文中再计算默认路径。
+if (-not $ValidationFile) { $ValidationFile=Join-Path $repoRoot 'config/webview2-release-validation.json' }
 $versionPath = Join-Path $repoRoot 'version.json'
 $artifactsRoot = Join-Path $repoRoot 'artifacts'
 
 function Invoke-REFFScript([string]$Name, [string[]]$Arguments) {
     # PowerShell 对脚本参数数组的绑定会把 -Profile 当作 ValidateSet 的值；按脚本契约显式转发参数。
+    if ($SkipBuild -and $Name -in @('build-web.ps1','build.ps1')) { return }
     $scriptPath = Join-Path $repoRoot "tools\$Name"
+    # 纯 PowerShell 子脚本不会设置 LASTEXITCODE；先清零，避免继承空值或上一个外部命令的退出码。
+    $global:LASTEXITCODE = 0
     switch ($Name) {
         'build-web.ps1' {
             if ($Arguments -contains '-IncludeExamples') { & $scriptPath -IncludeExamples }
@@ -67,18 +74,18 @@ $runtimeHash = "$runtimeZip.sha256"
 $examplesHash = "$examplesZip.sha256"
 $experimentalHash = "$experimentalZip.sha256"
 
-if (-not $SkipBuild) {
+& {
     # 构建前删除同版本旧资产，防止中途失败后继续使用上一轮压缩包。
     foreach ($oldAsset in @($runtimeZip, $examplesZip, $experimentalZip, $runtimeHash, $examplesHash, $experimentalHash)) {
         if (Test-Path -LiteralPath $oldAsset) { Remove-Item -LiteralPath $oldAsset -Force }
     }
-    # 示例 Web 资源和 GameTest 原生构建使用透明 IME 代理，先生成开发示例包。
+    # 默认原生构建已启用透明 IME 代理，先生成独立示例增量包。
     Invoke-REFFScript 'build-web.ps1' @('-IncludeExamples')
-    Invoke-REFFScript 'build.ps1' @('-Profile', 'GameTest')
-    Invoke-REFFScript 'stage.ps1' @('-BuildRoot', (Join-Path $repoRoot 'build-ime'), '-IncludeExamples')
+    Invoke-REFFScript 'build.ps1' @('-Profile', 'Default')
+    Invoke-REFFScript 'stage.ps1' @('-BuildRoot', (Join-Path $repoRoot 'build-webview2-release'), '-IncludeExamples')
     $stageRoot = Join-Path $repoRoot 'staging\reframework'
-    # 示例包是正式 Runtime 的增量包，只提取示例后端脚本和三个插件目录，不重复打包 DLL/CEF/Shell。
-    if (Test-Path -LiteralPath (Split-Path $examplesStageRoot -Parent)) { Remove-Item -LiteralPath (Split-Path $examplesStageRoot -Parent) -Recurse -Force }
+    # 示例包是正式 Runtime 的增量包，只提取示例后端脚本和三个插件目录，不重复打包 DLL/宿主/Shell。
+    Reset-REFFStage $repoRoot (Split-Path $examplesStageRoot -Parent)
     New-Item -ItemType Directory -Force -Path $examplesStageRoot | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $examplesStageRoot 'autorun'), (Join-Path $examplesStageRoot 'reff\plugins') | Out-Null
     Copy-Item -LiteralPath (Join-Path $stageRoot 'autorun\REFF.examples.lua') -Destination (Join-Path $examplesStageRoot 'autorun\REFF.examples.lua') -Force
@@ -95,6 +102,7 @@ if (-not $SkipBuild) {
     Copy-Item -LiteralPath (Join-Path $repoRoot 'web\examples-dev\pnpm-workspace.yaml') -Destination $devRoot -Force
     $devFiles = @(
         (Join-Path $repoRoot 'web\plugins\tsconfig.json'),
+        (Join-Path $repoRoot 'web\plugins\env.d.ts'),
         (Join-Path $repoRoot 'web\sdk'),
         (Join-Path $repoRoot 'web\shared\src'),
         (Join-Path $repoRoot 'web\shell\package.json'),
@@ -120,7 +128,7 @@ if (-not $SkipBuild) {
     foreach ($exampleId in @('example.vue', 'example.react', 'example.html')) {
         $source = Join-Path $repoRoot "web\plugins\$exampleId"
         $destination = Join-Path $devRoot "web\plugins\$exampleId"
-        Get-ChildItem -LiteralPath $source -File -Recurse | Where-Object { $_.FullName -notmatch '\\ui\\dist\\' } | ForEach-Object {
+        Get-ChildItem -LiteralPath $source -File -Recurse | Where-Object { $_.FullName -notmatch '\\(node_modules|dist|\.git)\\' } | ForEach-Object {
             $relative = Get-REFFRelativePath $source $_.FullName
             $target = Join-Path $destination $relative
             New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
@@ -133,14 +141,15 @@ if (-not $SkipBuild) {
     Copy-Item -LiteralPath (Join-Path $repoRoot 'web\examples-dev\tools\watch-and-sync.ps1') -Destination (Join-Path $devRoot 'tools\watch-and-sync.ps1') -Force
     Compress-Archive -Path $examplesStageRoot -DestinationPath $examplesZip -CompressionLevel Optimal
 
-    # 正式包也使用 GameTest 配置，确保分发 DLL 包含已验收的透明 IME 代理；正式包仍不带测试脚本和示例插件。
+    # 正式包使用默认配置，包含透明 IME 代理，不带测试脚本和示例插件。
     Invoke-REFFScript 'build-web.ps1' @()
-    Invoke-REFFScript 'build.ps1' @('-Profile', 'GameTest')
-    Invoke-REFFScript 'stage.ps1' @('-BuildRoot', (Join-Path $repoRoot 'build-ime'))
+    Invoke-REFFScript 'build.ps1' @('-Profile', 'Default')
+    Invoke-REFFScript 'stage.ps1' @('-BuildRoot', (Join-Path $repoRoot 'build-webview2-release'))
     Compress-Archive -Path $stageRoot -DestinationPath $runtimeZip -CompressionLevel Optimal
 
     # 统一实验包使用独立 build-compat，覆盖所有 experimental 目标，不改变正式 staging。
-    & (Join-Path $repoRoot 'tools\package-compatibility.ps1') -AllExperimental -PackageVersion $releaseVersion -OutputDirectory $artifactsRoot
+    $global:LASTEXITCODE = 0
+    & (Join-Path $repoRoot 'tools\package-compatibility.ps1') -AllExperimental -PackageVersion $releaseVersion -OutputDirectory $artifactsRoot -SkipBuild:$SkipBuild
     if ($LASTEXITCODE -ne 0) { throw '统一实验包生成失败' }
 }
 
@@ -201,10 +210,13 @@ foreach ($asset in @($runtimeZip, $examplesZip, $experimentalZip)) {
     "$hash  $([IO.Path]::GetFileName($asset))" | Set-Content -LiteralPath "$asset.sha256" -Encoding ascii
 }
 
+& (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($runtimeZip,$examplesZip,$experimentalZip)
 Write-Host "发布资产已生成："
 Get-Item -LiteralPath $runtimeZip, $examplesZip, $experimentalZip, $runtimeHash, $examplesHash, $experimentalHash | Select-Object Name, Length | Format-Table -AutoSize
 
 if ($Publish) {
+    # 发布必须绑定本次实际 DLL/宿主哈希；历史版本或较早原型的通过记录不能代替当前游戏验收。
+    & (Join-Path $PSScriptRoot 'verify-game-validation.ps1') -ValidationFile $ValidationFile -BuildRoot (Join-Path $repoRoot 'build-webview2-release')
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw '未找到 GitHub CLI gh；请先安装并执行 gh auth login。' }
     $isPrerelease = $releaseVersion -match '-(alpha|beta|rc|preview)(?:[.-]\d+|\d+|$)'
     & gh release view $normalizedTag --json tagName *> $null

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, shallowRef, watch } from 'vue';
 import { applyReffPreferences, ElMessage, REFF_ELEMENT_LOCALES } from '@reff/ui';
-import { createCefTransport, createReffClient, installInputFocusReporter } from '@reff-sdk/index';
+import { createHostTransport, createReffClient, installInputFocusReporter } from '@reff-sdk/index';
 import type { ReffSubscription } from '@reff-sdk/types';
 import SchemaPanel, { type SchemaDefinition, type SchemaField } from './components/SchemaPanel.vue';
 import SettingsPanel from './features/settings/SettingsPanel.vue';
@@ -23,7 +23,7 @@ type PluginSummary = {
   schema?: SchemaDefinition;
 };
 
-const reff = createReffClient(createCefTransport());
+const reff = createReffClient(createHostTransport());
 const reffVersion = __REFF_VERSION__;
 const settingsPluginId = 'reff.settings';
 const ready = shallowRef(false);
@@ -45,7 +45,6 @@ const schemaValuesByPlugin = reactive<Record<string, Record<string, unknown>>>({
 const pluginErrors = reactive<Record<string, string>>({});
 const schemaRevisions = new Map<string, number>();
 const schemaSubscriptions = new Map<string, ReffSubscription>();
-const isolatedSubscriptions = new Map<string, ReffSubscription>();
 let selfTestTimer: number | undefined;
 let lifecycleTimer: number | undefined;
 let devReloadTimer: number | undefined;
@@ -64,7 +63,7 @@ function pluginName(plugin: PluginSummary | null | undefined): string {
 const settingsActive = computed(() => selectedPluginId.value === settingsPluginId);
 const selectedSchemaPlugin = computed(() => activePlugin.value?.mode === 'component' && activePlugin.value.schema ? activePlugin.value : null);
 const isolatedPlugin = computed(() => activePlugin.value?.mode === 'isolated-page' ? activePlugin.value : null);
-// 为隔离插件刷新生成新的资源 URL；参数只用于绕过 CEF 文档缓存，不改变插件身份。
+// 为隔离插件刷新生成新的资源 URL；参数只用于绕过 文档缓存，不改变插件身份。
 const isolatedPluginUrl = computed(() => {
   const plugin = isolatedPlugin.value;
   return plugin ? `${plugin.url}${plugin.url.includes('?') ? '&' : '?'}reff_reload=${isolatedReloadKey.value}` : '';
@@ -165,19 +164,14 @@ async function connectSchemaPlugins(discovered: PluginSummary[]) {
 
 // 清理 Shell 代管的全部订阅；断线或脚本重置后不会复用旧 epoch 的句柄。
 async function cleanupSubscriptions() {
-  const subscriptions = [...schemaSubscriptions.values(), ...isolatedSubscriptions.values()];
+  const subscriptions = [...schemaSubscriptions.values()];
   schemaSubscriptions.clear();
-  isolatedSubscriptions.clear();
   await Promise.allSettled(subscriptions.map(subscription => subscription.unsubscribe()));
 }
 
-// 切换插件时立即使旧 iframe 引用失效，并撤销只属于旧隔离页的订阅代理。
-watch(selectedPluginId, async (current, previous) => {
-  if (current === previous) return;
-  isolatedFrame.value = null;
-  const subscriptions = [...isolatedSubscriptions.values()];
-  isolatedSubscriptions.clear();
-  await Promise.allSettled(subscriptions.map(subscription => subscription.unsubscribe()));
+// 切换插件时立即使旧 iframe 引用失效；原生文档卸载负责撤销插件订阅。
+watch(selectedPluginId, (current, previous) => {
+  if (current !== previous) isolatedFrame.value = null;
 }, { flush: 'sync' });
 
 // 左侧导航只消费宿主返回的 manifest 摘要；Shell 不包含任何具体插件 ID 或业务页面。
@@ -228,7 +222,7 @@ function resetSettings() {
   }).finally(() => { savingSettings.value = false; });
 }
 
-// 隔离页面请求由 Shell 校验 manifest 能力后代理，避免 iframe 取得 Shell 的任意方法权限。
+// Shell 仅处理当前 iframe 的偏好、导航和输入坐标；业务请求由原生 frame 绑定校验。
 async function onEmbeddedMessage(event: MessageEvent) {
   const frame = isolatedFrame.value;
   const frameWindow = frame?.contentWindow;
@@ -244,27 +238,12 @@ async function onEmbeddedMessage(event: MessageEvent) {
   }
   if (event.data?.type !== 'reff:request' || !plugin) return;
   const request = event.data;
+  // WebView2 插件业务必须走实际 frame 的原生通道；Shell 仅代理输入法坐标换算。
+  if (request.method !== 'ui.input.focus') return;
   const pluginId = plugin.id;
   const isCurrent = () => selectedPluginId.value === pluginId && isolatedFrame.value?.contentWindow === frameWindow;
   const reply = (value: Record<string, unknown>) => frameWindow.postMessage({ type: 'reff:response', id: request.id, ...value }, '*');
   if (typeof request.id !== 'string' || typeof request.method !== 'string') return;
-  if (request.method === 'ui.identity') { reply({ ok: true, result: { pageId: `embedded:${plugin.id}`, kind: 'plugin', pluginId: plugin.id } }); return; }
-  if (request.method === 'ui.status') { reply({ ok: true, result: { ready: ready.value } }); return; }
-  // 隔离页只能刷新当前 iframe；递增 key 会卸载旧页面并清理其订阅与请求。
-  if (request.method === 'ui.reload') {
-    if (!isCurrent()) return;
-    isolatedReloadKey.value += 1;
-    reply({ ok: true, result: {} });
-    return;
-  }
-  if (request.method === 'ui.dev.version') {
-    if (!isCurrent()) return;
-    try {
-      // 由原生宿主直接读取开发标记，绕过 CEF 自定义协议的缓存层。
-      reply({ ok: true, result: await reff.call('ui.dev.version', { pluginId }) });
-    } catch (error) { reply({ ok: false, code: 'DEV_MARKER_NOT_FOUND', message: String(error) }); }
-    return;
-  }
   if (request.method === 'ui.input.focus') {
     const params = request.params;
     if (!params || typeof params !== 'object' || typeof params.active !== 'boolean') {
@@ -302,50 +281,6 @@ async function onEmbeddedMessage(event: MessageEvent) {
     }
     return;
   }
-  if (request.method === 'ui.subscribe') {
-    const name = request.params?.eventName;
-    const subscriptionId = request.params?.subscriptionId;
-    if (!plugin.events.includes(name) || typeof subscriptionId !== 'string') {
-      reply({ ok: false, code: 'FORBIDDEN', message: '事件未声明' });
-      return;
-    }
-    try {
-      const subscription = await reff.subscribe(name, payload => {
-        if (isCurrent()) frameWindow.postMessage({ type: 'reff:event', subscriptionId, payload }, '*');
-      });
-      if (!isCurrent()) { await subscription.unsubscribe(); return; }
-      isolatedSubscriptions.set(subscriptionId, subscription);
-      reply({ ok: true, result: {} });
-    } catch (error) {
-      reply({ ok: false, code: 'TRANSPORT_ERROR', message: String(error) });
-    }
-    return;
-  }
-  if (request.method === 'ui.unsubscribe') {
-    const id = request.params?.subscriptionId;
-    const subscription = isolatedSubscriptions.get(id);
-    if (subscription) { isolatedSubscriptions.delete(id); await subscription.unsubscribe(); }
-    reply({ ok: true, result: {} });
-    return;
-  }
-  if (!plugin.methods.includes(request.method) || !request.method.startsWith(`${plugin.id}.`)) {
-    reply({ ok: false, code: 'FORBIDDEN', message: '方法未声明' });
-    return;
-  }
-  try {
-    reply({ ok: true, result: await reff.call(request.method, request.params || {}) });
-  } catch (error) {
-    reply({ ok: false, code: 'TRANSPORT_ERROR', message: String(error) });
-  }
-}
-
-// CEF 的浏览器级 IME 提交无法可靠命中子 frame；只把宿主事件转发给当前插件 iframe。
-function onEmbeddedIme(event: Event) {
-  const detail = (event as CustomEvent<{ action?: string; text?: string; inputId?: string }>).detail;
-  const plugin = isolatedPlugin.value;
-  const frameWindow = isolatedFrame.value?.contentWindow;
-  if (!plugin || !frameWindow || !detail?.inputId?.startsWith(`embedded:${plugin.id}:`)) return;
-  frameWindow.postMessage({ type: 'reff:ime', ...detail }, '*');
 }
 
 // 重新发现插件并连接 Schema 状态；没有插件时保留可理解的空状态。
@@ -442,7 +377,6 @@ async function runSelfTest() {
 onMounted(async () => {
   inputFocusReporter = installInputFocusReporter(reff);
   window.addEventListener('message', onEmbeddedMessage);
-  window.addEventListener('reff:embedded-ime', onEmbeddedIme);
   try { applySettings(await reff.call<ReffSettings>('reff.settings.get')); }
   catch (error) { ElMessage.warning(String(error)); }
   try { await loadPlugins(settingsPluginId, false); }
@@ -468,7 +402,6 @@ onBeforeUnmount(async () => {
   inputFocusReporter?.();
   inputFocusReporter = null;
   window.removeEventListener('message', onEmbeddedMessage);
-  window.removeEventListener('reff:embedded-ime', onEmbeddedIme);
   await cleanupSubscriptions();
   reff.dispose();
 });

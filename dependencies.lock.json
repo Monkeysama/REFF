@@ -6,13 +6,6 @@
     "luaVersion": "5.4.3",
     "pluginApiVersion": "1.15.0"
   },
-  "cef": {
-    "version": "152.0.6+g708dc14+chromium-152.0.7977.83",
-    "url": "https://cef-builds.spotifycdn.com/cef_binary_152.0.6%2Bg708dc14%2Bchromium-152.0.7977.83_windows64_minimal.tar.bz2",
-    "sha256": "db3e0751979c3cb3068f732ed4f0ef12ade69d183d98ceee120ad08c8d00f74c",
-    "sha1": "e5e3020627f4528bd43e22f4c4970000b0458e99",
-    "bootstrap": true
-  },
   "testedReframeworkDllSha256": "99cceee4d5db28dd86599ebae80a41b89aa2706b4c3280874a6ee9c2063d06cc",
   "web": {
     "node": "24.19.0",
@@ -25,5 +18,13 @@
     "vueTsc": "3.0.6",
     "offline": true,
     "license": "MIT"
+  },
+  "webview2": {
+    "version": "1.0.4258.31",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.4258.31/microsoft.web.webview2.1.0.4258.31.nupkg",
+    "sha256": "56f7f4b8bf9aee4b8efefbbdd4f67d5f74ebd1b100ed0806da71bf76af481aa9",
+    "minimumRuntime": "155.0.4283.62",
+    "minimumWindowsBuild": 19045,
+    "distribution": "Evergreen shared stable"
   }
 }

@@ -212,7 +212,7 @@ void ImeProxy::dispatch_redirected_input() {
     }
 }
 
-// 使用游戏客户区坐标定位透明 EDIT，使输入法候选框靠近 CEF 当前插入点。
+// 使用游戏客户区坐标定位透明 EDIT，使输入法候选框靠近浏览器当前插入点。
 void ImeProxy::apply_bounds() {
     HWND edit = edit_.load(); if (!edit || !owner_) return;
     Json bounds; { std::lock_guard lock(mutex_); bounds = bounds_; }
@@ -233,7 +233,7 @@ void ImeProxy::apply_bounds() {
     SetWindowPos(edit, HWND_TOP, point.x, point.y, std::max(1, bounds.value("width", 1)), std::max(1, bounds.value("height", 24)), SWP_NOACTIVATE | SWP_NOOWNERZORDER);
 }
 
-// 将输入法组合状态作为 CEF 消息发送；提交文本与组合文本分别处理，避免伪造 KEYEVENT_CHAR。
+// 将输入法组合状态作为浏览器消息发送；提交文本与组合文本分别处理，避免伪造 字符事件。
 void ImeProxy::handle_ime(LPARAM flags) {
     HWND edit = edit_.load(); if (!edit || !sender_) return;
     if (flags & GCS_COMPSTR) {
@@ -248,27 +248,28 @@ void ImeProxy::handle_ime(LPARAM flags) {
     }
 }
 
-// 输入法可能只发送 WM_IME_ENDCOMPOSITION 而没有结果文本；此时必须通知 CEF 清除残留组合状态。
+// 输入法可能只发送 WM_IME_ENDCOMPOSITION 而没有结果文本；此时必须通知浏览器清除残留组合状态。
 void ImeProxy::handle_ime_end() {
     if (!composition_active_) return;
     composition_active_ = false;
     if (sender_) sender_({{"type", "ime"}, {"action", "cancel"}});
 }
 
-// 普通英文输入和编辑快捷键仍通过 CEF 键盘事件处理；IME 确认文本只能经 ImeCommitText 进入 CEF 一次。
+// 普通英文输入和编辑快捷键仍通过浏览器键盘事件处理；IME 确认文本只能经 IME 提交消息进入浏览器一次。
 void ImeProxy::send_key(UINT message, WPARAM key, LPARAM native) {
     if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && hotkey_ && (key == VK_ESCAPE || key >= 1 && key <= 255)) {
-        // 代理窗口只拦截真正由快捷键回调处理的按键；普通按键继续交给 CEF。
+        // 代理窗口只拦截真正由快捷键回调处理的按键；普通按键继续交给 浏览器。
         if (hotkey_(static_cast<int>(key))) return;
     }
     // IMM 在 GCS_RESULTSTR 后通常投递 WM_IME_CHAR，部分布局还会再由 TranslateMessage 产生 WM_CHAR。
-    // 前者若参与数量抵消，会令后者穿透到 CEF，与 ImeCommitText 形成重复提交；因此永不转发 WM_IME_CHAR。
+    // 前者若参与数量抵消，会令后者穿透到 浏览器，与 IME 提交消息形成重复提交；因此永不转发 WM_IME_CHAR。
     if (message == WM_IME_CHAR) return;
     // 仅屏蔽本次 IME 确认尾随的 WM_CHAR；英文输入没有先前确认文本，仍按普通键盘事件发送。
     if (message == WM_CHAR && suppress_chars_ > 0) { --suppress_chars_; return; }
-    // 透明 EDIT 取得焦点后，所有输入都走本路径；必须携带 CEF 修饰位，否则 Ctrl+C/V/A 会退化为普通字母。
-    const int modifiers = cef_keyboard_modifiers(
-        GetKeyState(VK_SHIFT) < 0, GetKeyState(VK_CONTROL) < 0, GetKeyState(VK_MENU) < 0);
+    // 透明 EDIT 取得焦点后，所有输入都走本路径；必须携带浏览器修饰位，否则 Ctrl+C/V/A 会退化为普通字母。
+    const int modifiers = input_modifiers(
+        GetKeyState(VK_SHIFT) < 0, GetKeyState(VK_CONTROL) < 0, GetKeyState(VK_MENU) < 0,
+        false, false, GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN) < 0);
     if (sender_) sender_({{"type", "key"}, {"key", static_cast<int>(key)}, {"native", static_cast<int>(native)}, {"modifiers", modifiers},
         {"action", message == WM_KEYUP || message == WM_SYSKEYUP ? "up" : (message == WM_CHAR || message == WM_IME_CHAR) ? "char" : "down"}});
 }

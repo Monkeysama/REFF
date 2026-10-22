@@ -1,0 +1,23 @@
+{
+  "name": "reff-example-react",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.19.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "sync": "powershell -ExecutionPolicy Bypass -File ../../../tools/build-and-sync.ps1 -PluginId example.react",
+    "watch": "powershell -ExecutionPolicy Bypass -File ../../../tools/watch-and-sync.ps1 -PluginId example.react"
+  },
+  "dependencies": {
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2",
+    "vite": "7.1.5",
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9"
+  }
+}

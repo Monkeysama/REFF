@@ -8,7 +8,8 @@
 $ErrorActionPreference = 'Stop'
 
 # 开发监视器只调用网页构建与插件目录同步，不启动、关闭或注入游戏；构建成功后由示例页的 ui.reload 自动刷新。
-$devRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+$devRoot = Split-Path -Parent $PSScriptRoot
+if (-not (Test-Path -LiteralPath (Join-Path $devRoot 'web/plugins'))) { $devRoot = Split-Path -Parent (Split-Path -Parent $devRoot) }
 $syncScript = Join-Path $PSScriptRoot 'build-and-sync.ps1'
 $pluginRoot = Join-Path $devRoot "web\plugins\$PluginId"
 if (-not (Test-Path -LiteralPath $syncScript -PathType Leaf)) { throw "Missing sync script: $syncScript" }

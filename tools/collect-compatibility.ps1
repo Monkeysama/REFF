@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ReframeworkRoot = 'C:\Steam\steamapps\common\MonsterHunterWilds\reframework',
     [string]$OutputDirectory = ''
 )

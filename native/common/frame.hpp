@@ -10,7 +10,7 @@ struct FrameData {
     std::uint32_t width;
     std::uint32_t height;
     std::uint64_t sequence;
-    // CEF 生成该帧时对应的 viewport 代次；渲染器据此丢弃过期尺寸帧。
+    //浏览器生成该帧时对应的 viewport 代次；渲染器据此丢弃过期尺寸帧。
     std::uint64_t viewport_generation;
     std::uint8_t pixels[frame_max_width * frame_max_height * 4];
 };

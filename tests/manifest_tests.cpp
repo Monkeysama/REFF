@@ -3,7 +3,7 @@
 #include <fstream>
 #include <iostream>
 
-// 验证清单边界、重复 ID、游戏过滤和会话关闭屏障；测试不启动 CEF 或游戏进程。
+// 验证清单边界、重复 ID、游戏过滤和会话关闭屏障；测试不启动浏览器或游戏进程。
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
     try {

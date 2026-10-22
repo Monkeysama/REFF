@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Target = '',
     [switch]$AllExperimental,
     [switch]$SkipBuild,
@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'game-catalog.ps1')
+. (Join-Path $PSScriptRoot 'package-files.ps1')
 
 # 实验兼容包与正式 Release 完全隔离，只允许目录中明确标记为 experimental 的目标；默认一次覆盖全部实验目标。
 $normalizedTarget = $Target.Trim().ToUpperInvariant()
@@ -24,7 +25,7 @@ $packageKey = if ($selectedTargets.Count -gt 1) { 'modern' } else { $selectedTar
 
 $version = if ($PackageVersion) { $PackageVersion.TrimStart('v') } else { [string](([IO.File]::ReadAllText((Join-Path $repoRoot 'version.json'), [Text.Encoding]::UTF8) | ConvertFrom-Json).version) }
 if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw "实验包版本号无效：$version" }
-$buildRoot = Join-Path $repoRoot 'build-compat'
+$buildRoot = Join-Path $repoRoot 'build-webview2-compat'
 $compatibilityStageRoot = Join-Path $repoRoot "staging\compatibility-build-$packageKey"
 $stageRoot = Join-Path $compatibilityStageRoot 'reframework'
 $profilePath = Join-Path $compatibilityStageRoot 'build-profile.json'
@@ -38,9 +39,11 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { throw 'Web 资源构建失败。' }
     & (Join-Path $PSScriptRoot 'build.ps1') -Profile GameTest -ExperimentalGames
     if ($LASTEXITCODE -ne 0) { throw '实验原生构建失败。' }
-    & (Join-Path $PSScriptRoot 'stage.ps1') -BuildRoot $buildRoot -StagingRoot $compatibilityStageRoot
-    if ($LASTEXITCODE -ne 0) { throw '实验 staging 生成失败。' }
 }
+# SkipBuild 只复用二进制，文档、安装器及清单仍从当前源码重新生成。
+$global:LASTEXITCODE=0
+& (Join-Path $PSScriptRoot 'stage.ps1') -BuildRoot $buildRoot -StagingRoot $compatibilityStageRoot
+if ($LASTEXITCODE -ne 0) { throw '实验 staging 生成失败。' }
 
 if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf)) { throw '缺少 staging/build-profile.json；请先生成实验 staging。' }
 $profile = [IO.File]::ReadAllText($profilePath, [Text.Encoding]::UTF8) | ConvertFrom-Json
@@ -50,7 +53,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $stageRoot 'plugins\REFF.dll') -Path
 # 临时目录只复制 staging 清单内的 Runtime，再加入目标元数据、测试指南和无仓库依赖的收集器。
 $workParent = Join-Path $repoRoot "staging\compatibility-package-$packageKey"
 $packageRoot = Join-Path $workParent 'reframework'
-if (Test-Path -LiteralPath $workParent) { Remove-Item -LiteralPath $workParent -Recurse -Force }
+Reset-REFFStage $repoRoot $workParent
 New-Item -ItemType Directory -Force -Path $workParent | Out-Null
 Copy-Item -LiteralPath $stageRoot -Destination $workParent -Recurse -Force
 $compatibilityRoot = Join-Path $packageRoot 'reff\compatibility'
@@ -85,6 +88,7 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'collect-installed-compatibility
     createdUtc = [DateTime]::UtcNow.ToString('o')
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $compatibilityRoot 'package.json') -Encoding utf8
 
+$null=Write-REFFManifest $packageRoot (Join-Path $packageRoot 'reff/package-manifest.json')
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $archive = Join-Path $OutputDirectory "REFF-$version-$packageKey-experimental.zip"
 if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
@@ -111,6 +115,6 @@ foreach ($entry in $entries) {
 }
 $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $([IO.Path]::GetFileName($archive))" | Set-Content -LiteralPath "$archive.sha256" -Encoding ascii
-Remove-Item -LiteralPath $workParent -Recurse -Force
+& (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($archive)
 Write-Output "REFF 实验兼容包已生成：$archive"
 Write-Output "SHA-256：$hash"

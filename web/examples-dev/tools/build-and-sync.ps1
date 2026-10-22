@@ -6,9 +6,11 @@
 $ErrorActionPreference = 'Stop'
 
 # 开发同步脚本只负责构建网页并复制插件资源，不启动或控制游戏；页面刷新由开发者手动完成。
-$devRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+$devRoot = Split-Path -Parent $PSScriptRoot
+if (-not (Test-Path -LiteralPath (Join-Path $devRoot 'web/plugins'))) { $devRoot = Split-Path -Parent (Split-Path -Parent $devRoot) }
 $pluginRoot = Join-Path $devRoot "web\plugins\$PluginId"
 $shellRoot = Join-Path $devRoot 'web\shell'
+$buildRoot = if (Test-Path -LiteralPath (Join-Path $pluginRoot 'node_modules/.bin/vite.cmd')) { $pluginRoot } else { $shellRoot }
 $targetRoot = [IO.Path]::GetFullPath($GameReframeworkRoot).TrimEnd('\')
 $targetPluginRoot = Join-Path $targetRoot "reff\plugins\$PluginId"
 
@@ -21,7 +23,7 @@ $pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
 if (-not $pnpm) { throw '未找到 pnpm，请先安装 Node.js 与 pnpm。' }
 
 # 先在示例开发工作区构建指定插件，其他插件不会被修改。
-Push-Location $shellRoot
+Push-Location $buildRoot
 try {
     & $pnpm.Source exec vite build --config (Join-Path $pluginRoot 'vite.config.ts')
     if ($LASTEXITCODE -ne 0) { throw "Vite 构建失败：$PluginId" }
@@ -32,11 +34,17 @@ $dist = Join-Path $pluginRoot 'ui\dist'
 if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw "缺少插件 manifest：$manifest" }
 if (-not (Test-Path -LiteralPath $dist -PathType Container)) { throw "构建未生成页面目录：$dist" }
 
-# 只覆盖目标插件目录；不会触碰 REFF.dll、CEF、Shell 或其他插件。
+# 只覆盖目标插件目录；不会触碰 REFF.dll、浏览器宿主、Shell 或其他插件。
 New-Item -ItemType Directory -Force -Path $targetPluginRoot | Out-Null
 Copy-Item -LiteralPath $manifest -Destination (Join-Path $targetPluginRoot 'manifest.json') -Force
 $targetDist = [IO.Path]::GetFullPath((Join-Path $targetPluginRoot 'ui\dist'))
 if (-not $targetDist.StartsWith([IO.Path]::GetFullPath($targetPluginRoot).TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw '插件构建目标路径越界' }
+# 删除生成目录前逐级排除重解析点，避免合法字符串路径经 junction 指向其他插件或磁盘目录。
+$ancestor=$targetDist
+while ($ancestor) {
+    if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw '插件同步目标含重解析点' }
+    $ancestor=Split-Path -Parent $ancestor
+}
 # Vite 文件名包含内容哈希；先清理本插件旧 dist，避免开发同步长期累积不再引用的资源。
 if (Test-Path -LiteralPath $targetDist) { Remove-Item -LiteralPath $targetDist -Recurse -Force }
 Copy-Item -LiteralPath $dist -Destination (Join-Path $targetPluginRoot 'ui') -Recurse -Force

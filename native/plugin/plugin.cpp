@@ -81,7 +81,7 @@ struct Runtime {
     std::atomic_int left{}, top{}, right{}, bottom{};
     std::atomic_int panel_display_width{panel_width}, panel_display_height{panel_height};
     std::atomic_int viewport_width{panel_width}, viewport_height{panel_height};
-    // viewport_generation 与 CEF 宿主和共享帧同步；窗口线程递增，Present 线程只读取。
+    // viewport_generation 与浏览器宿主和共享帧同步；窗口线程递增，Present 线程只读取。
     std::atomic_uint64_t viewport_generation{1};
     std::uint64_t last_viewport_commit_tick{};
     // 面板位置由窗口线程拖动、Present 线程裁剪；只保存客户区坐标，关闭后在本次进程内保留。
@@ -95,10 +95,10 @@ struct Runtime {
     std::mutex pointer_mutex;
     // Present 线程在输入锁竞争时沿用最近一次快照，不能因鼠标消息占锁而跳过整次面板合成。
     std::pair<int, int> rendered_cursor_position{720, 450};
-    // 仅在指针位于 CEF 面板矩形中时向网页发送鼠标事件；离开时单次通知 CEF 清除 hover 状态。
+    // 仅在指针位于浏览器面板矩形中时向网页发送鼠标事件；离开时单次通知浏览器清除 hover 状态。
     bool pointer_in_panel{}, pending_virtual_cursor_dispatch{};
     int last_panel_x{-1}, last_panel_y{-1};
-    std::uint64_t last_cef_move_tick{};
+    std::uint64_t last_browser_move_tick{};
     // 标题栏拖动状态只由游戏窗口线程访问；Raw Input 与 WM_MOUSEMOVE 共用同一套锚点。
     std::atomic_bool panel_dragging{};
     // 面板几何的写入来自窗口线程，读取来自 Present 线程；用同一把锁提交完整矩形，避免单轴调整读到中间状态。
@@ -379,11 +379,11 @@ void synchronize_virtual_cursor_position(HWND window) {
             runtime->cursor_input.cursor.bounds().first / 2, runtime->cursor_input.cursor.bounds().second / 2);
     runtime->pointer_in_panel = false;
     runtime->last_panel_x = runtime->last_panel_y = -1;
-    runtime->last_cef_move_tick = 0;
+    runtime->last_browser_move_tick = 0;
     runtime->pending_virtual_cursor_dispatch = true;
 }
 
-// 把游戏客户区位置换算为固定 CEF 逻辑坐标。面板外移动不交给网页命中测试，但仍绘制原生虚拟光标。
+// 把游戏客户区位置换算为固定浏览器逻辑坐标。面板外移动不交给网页命中测试，但仍绘制原生虚拟光标。
 bool map_virtual_cursor_to_panel(int x, int y, int& panel_x, int& panel_y) {
     const int left = runtime->left.load();
     const int top = runtime->top.load();
@@ -396,7 +396,7 @@ bool map_virtual_cursor_to_panel(int x, int y, int& panel_x, int& panel_y) {
     return true;
 }
 
-// 仅在进入、离开或面板内移动时发送 CEF 鼠标事件。CEF 不再绘制指针，原生渲染器负责全客户区视觉光标。
+// 仅在进入、离开或面板内移动时发送浏览器鼠标事件。浏览器 不再绘制指针，原生渲染器负责全客户区视觉光标。
 void dispatch_virtual_cursor_move(int modifiers) {
     if (!runtime->visible || !runtime->connected || !runtime->channel.connected()) return;
     const auto [x, y] = runtime->cursor_input.cursor.position();
@@ -405,23 +405,23 @@ void dispatch_virtual_cursor_move(int modifiers) {
     if (inside) {
         const bool entered = !runtime->pointer_in_panel;
         const auto now = GetTickCount64();
-        // CEF 页面每次移动都可能触发整页 OnPaint；8ms 节流保留交互响应，同时避免高频 Raw Input 造成提交拥塞。
-        const bool due = now - runtime->last_cef_move_tick >= 8;
+        //浏览器页面每次移动都可能触发整页 OnPaint；8ms 节流保留交互响应，同时避免高频 Raw Input 造成提交拥塞。
+        const bool due = now - runtime->last_browser_move_tick >= 8;
         if (entered || (due && (panel_x != runtime->last_panel_x || panel_y != runtime->last_panel_y))) {
             runtime->channel.send({{"type", "mouse"}, {"action", "move"}, {"x", panel_x}, {"y", panel_y}, {"button", 0}, {"delta", 0}, {"modifiers", modifiers}});
             runtime->last_panel_x = panel_x; runtime->last_panel_y = panel_y;
-            runtime->last_cef_move_tick = now;
+            runtime->last_browser_move_tick = now;
         }
         runtime->pointer_in_panel = true;
     } else if (runtime->pointer_in_panel) {
         runtime->channel.send({{"type", "mouse"}, {"action", "move"}, {"x", 0}, {"y", 0}, {"button", 0}, {"delta", 0}, {"modifiers", modifiers}, {"leave", true}});
         runtime->pointer_in_panel = false;
         runtime->last_panel_x = runtime->last_panel_y = -1;
-        runtime->last_cef_move_tick = 0;
+        runtime->last_browser_move_tick = 0;
     }
 }
 
-// 标题栏按下后记录指针与面板左上角的相对锚点；拖动不修改 CEF 页面尺寸。
+// 标题栏按下后记录指针与面板左上角的相对锚点；拖动不修改浏览器页面尺寸。
 bool begin_panel_drag(int x, int y) {
     std::lock_guard geometry_lock(runtime->panel_geometry_mutex);
     const int left = runtime->left.load(), top = runtime->top.load();
@@ -467,7 +467,7 @@ int resize_cursor_mode_at(int x, int y) {
 // 声明实时 viewport 提交函数；调整输入线程与释放消息都会调用。
 void commit_viewport_resize(bool force = false);
 
-// W2 根据命中边更新显示矩形，限制最小尺寸；每次调整都会触发受控的 CEF 实时重排。
+// W2 根据命中边更新显示矩形，限制最小尺寸；每次调整都会触发受控的浏览器实时重排。
 void update_panel_resize(int x, int y, PanelResizeController::InputMode mode) {
     RECT next{};
     if (!runtime->resize_controller.update(x, y, mode, next)) return;
@@ -496,7 +496,7 @@ void update_panel_drag(int x, int y) {
     request_cursor_sync();
 }
 
-// 将最新面板尺寸发送给 CEF；拖动时按 16ms 合并，释放时 force 确保最后一个尺寸立即提交。
+// 将最新面板尺寸发送给 浏览器；拖动时按 16ms 合并，释放时 force 确保最后一个尺寸立即提交。
 void commit_viewport_resize(bool force) {
     const int width = std::clamp(runtime->panel_display_width.load(), 320, frame_max_width);
     const int height = std::clamp(runtime->panel_display_height.load(), 240, frame_max_height);
@@ -569,7 +569,7 @@ void suspend_for_focus() {
     request_cursor_sync();
 }
 
-// 游戏重新获得焦点时恢复输入捕获；页面一直可见，因此不触发 CEF 隐藏或重新布局。
+// 游戏重新获得焦点时恢复输入捕获；页面一直可见，因此不触发浏览器隐藏或重新布局。
 void restore_after_focus(HWND window) {
     if (!runtime->focus_suspended || !runtime->requested_visible || !runtime->connected || !runtime->ready) return;
     if (GetForegroundWindow() != window) return;
@@ -883,7 +883,7 @@ void service_loop(std::stop_token stop) {
                 { std::lock_guard lock(runtime->request_mutex); runtime->seen.clear(); runtime->requests.clear(); }
                 runtime->channel.start(runtime->session, true, receive);
                 auto directory = runtime->root / L"reff" / L"runtime";
-                auto executable = directory / L"reff-host.exe";
+                auto executable = directory / L"reff-webview2-host.exe";
                 auto assets = runtime->root / L"reff" / L"ui";
                 auto manifests = runtime->root / L"reff" / L"plugins";
                 auto cache = runtime->root / L"data" / L"REFF" / L"cache";
@@ -1103,7 +1103,7 @@ void on_present() {
     runtime->left = rect.left; runtime->top = rect.top; runtime->right = rect.right; runtime->bottom = rect.bottom;
     if (geometry_changed) request_cursor_sync();
     }
-    // 首次恢复保存几何后，显示矩形已经变化但 CEF 仍可能处于默认 viewport；
+    // 首次恢复保存几何后，显示矩形已经变化但浏览器仍可能处于默认 viewport；
     // 通过窗口线程消息提交一次强制同步，确保页面首帧按实际尺寸布局。
     if (geometry_initialized) {
         runtime->viewport_reset_requested.store(true, std::memory_order_release);
@@ -1244,9 +1244,10 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
         return false;
     }
     try {
-        const int modifiers = cef_keyboard_modifiers(
+        const int modifiers = input_modifiers(
             GetKeyState(VK_SHIFT) < 0, GetKeyState(VK_CONTROL) < 0, GetKeyState(VK_MENU) < 0,
-            GetKeyState(VK_LBUTTON) < 0, GetKeyState(VK_RBUTTON) < 0);
+            GetKeyState(VK_LBUTTON) < 0, GetKeyState(VK_RBUTTON) < 0,
+            GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN) < 0);
         if (message == WM_INPUT) {
             // WM_INPUT 的 lParam 是临时 HRAWINPUT，只能在本次窗口消息内读取；不跨线程保存。
             bool input_passthrough = runtime->mouse_passthrough.load();
@@ -1296,7 +1297,7 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
                         }
                         else update_panel_drag(runtime->cursor_input.cursor.position().first, runtime->cursor_input.cursor.position().second);
                         if (!runtime->panel_dragging) runtime->resize_cursor_mode = resize_cursor_mode_at(runtime->cursor_input.cursor.position().first, runtime->cursor_input.cursor.position().second);
-                        // 缩放期间 CEF 不需要鼠标命中事件；暂停高频 move，避免占满 IPC 队列阻塞 viewport 重排。
+                        // 缩放期间浏览器不需要鼠标命中事件；暂停高频 move，避免占满 IPC 队列阻塞 viewport 重排。
                         if (!runtime->panel_resize_edges.load(std::memory_order_acquire)) dispatch_virtual_cursor_move(modifiers);
                     }
                 }
@@ -1351,7 +1352,7 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
         }
 #if !REFF_ENABLE_IME_PROXY
         if (message == WM_IME_COMPOSITION && (lparam & GCS_RESULTSTR)) {
-            // 只转发已经确认的组合文本，避免把候选窗口内部状态暴露给 CEF。
+            // 只转发已经确认的组合文本，避免把候选窗口内部状态暴露给 浏览器。
             HIMC context = ImmGetContext(game_window);
             if (context) {
                 LONG bytes = ImmGetCompositionStringW(context, GCS_RESULTSTR, nullptr, 0);
@@ -1373,7 +1374,7 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
                     (message == WM_CHAR || message == WM_SYSCHAR || message == WM_IME_CHAR) ? "char" : "down"}});
             return runtime->keyboard_passthrough.load() && !runtime->web_input_active.load();
         }
-        // 当前 CEF 桥接不使用中键、侧键和水平滚轮；面板打开时仍须按鼠标穿透设置统一阻断或放行。
+        // 当前浏览器桥接不使用中键、侧键和水平滚轮；面板打开时仍须按鼠标穿透设置统一阻断或放行。
         if (message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_MBUTTONDBLCLK ||
             message == WM_XBUTTONDOWN || message == WM_XBUTTONUP || message == WM_XBUTTONDBLCLK || message == WM_MOUSEHWHEEL)
             return runtime->mouse_passthrough.load();

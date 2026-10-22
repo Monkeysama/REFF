@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "backend": "webview2",
+  "dllSha256": "FFDC1DD26F955B804725A317174E54708FAA959DAE87329EE6D5F87ECE45E408",
+  "hostSha256": "BE942D927F51C74EB3BEA6CFF09F62D4973C3E4AE7EB181C84E80D2F2A0F1D2A",
+  "checks": [
+    {
+      "game": "MHWILDS",
+      "scope": "P2",
+      "status": "passed",
+      "evidence": "artifacts/webview2-p3-p4/wilds-manual-validation.json"
+    },
+    {
+      "game": "MHWILDS",
+      "scope": "P3",
+      "status": "passed",
+      "evidence": "artifacts/webview2-p3-p4/wilds-manual-validation.json"
+    },
+    {
+      "game": "MHRISE",
+      "scope": "P3",
+      "status": "passed",
+      "evidence": "artifacts/webview2-p3-p4/rise-manual-validation.json"
+    },
+    {
+      "game": "RE4",
+      "scope": "P3",
+      "status": "deferred",
+      "evidence": "artifacts/webview2-p3-p4/scope-acceptance.json"
+    }
+  ],
+  "scopeAdjustment": {
+    "approvedBy": "user",
+    "reason": "本机没有其他游戏可测试，用户同意先按荒野和崛起结果验收；RE4 本轮未测，后续补验。",
+    "evidence": "artifacts/webview2-p3-p4/scope-acceptance.json",
+    "sourceMessageRef": "m02027"
+  }
+}

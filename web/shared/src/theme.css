@@ -1,4 +1,4 @@
-/* REFF 全局视觉令牌：CEF Shell 与 Element Plus 共享暗色层级，禁止组件库回退到默认浅色。 */
+/* REFF 全局视觉令牌：浏览器 Shell 与 Element Plus 共享暗色层级，禁止组件库回退到默认浅色。 */
 :root {
   --reff-bg: #10151e;
   --reff-bg-rgb: 16 21 30;

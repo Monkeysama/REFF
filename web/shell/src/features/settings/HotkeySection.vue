@@ -44,7 +44,7 @@ function codeToKey(code: string): number | null {
   return keys[code] ?? null;
 }
 
-// 某些 CEF/键盘布局组合可能只提供 key 而不提供 code；用标准 DOM key 值兜底，仍转换为 Windows 虚拟键码。
+// 某些 浏览器/键盘布局组合可能只提供 key 而不提供 code；用标准 DOM key 值兜底，仍转换为 Windows 虚拟键码。
 function eventToKey(event: KeyboardEvent): number | null {
   const byCode = codeToKey(event.code);
   if (byCode !== null) return byCode;
@@ -55,11 +55,13 @@ function eventToKey(event: KeyboardEvent): number | null {
   return byKey[event.key] ?? null;
 }
 
+// 录制时修饰键只参与组合；等到非修饰主键按下才提交，避免 Ctrl 被保存为 Ctrl + Ctrl。
 function captureKey(event: KeyboardEvent) {
   if (!capturing.value) return;
   const key = eventToKey(event);
   if (key === null) return;
   event.preventDefault(); event.stopPropagation();
+  if ([16, 17, 18, 91, 92].includes(key)) return;
   const modifiers = (event.shiftKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.altKey ? 4 : 0) | (event.metaKey ? 8 : 0);
   emit('change', { key, modifiers });
   capturing.value = false;

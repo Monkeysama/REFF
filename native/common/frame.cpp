@@ -29,7 +29,7 @@ void SharedFrame::open(const std::wstring& session, bool create) {
 }
 
 // 写入完整帧再递增序号；浏览器忙或游戏正在读取时丢弃本次更新即可。
-// CEF 可能因鼠标移动重复提交内容相同的整帧；像素未变时不递增序号，避免重复触发 DX12 上传。
+//浏览器可能因鼠标移动重复提交内容相同的整帧；像素未变时不递增序号，避免重复触发 DX12 上传。
 bool SharedFrame::write(const void* bgra, int width, int height, std::uint64_t viewport_generation) {
     if (!data_ || width < 320 || height < 240 || width > frame_max_width || height > frame_max_height) return false;
     DWORD acquired = WaitForSingleObject(mutex_.get(), 0);

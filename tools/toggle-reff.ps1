@@ -12,7 +12,8 @@ if ((Split-Path $targetRoot -Leaf) -ne 'reframework' -or -not (Test-Path -Litera
 $gameRoot = Split-Path $targetRoot -Parent
 $gameEntry = Find-REFFGame $repoRoot $gameRoot @('verified', 'experimental')
 if (-not $gameEntry) { throw '无法识别目标游戏' }
-if (Get-Process -Name $gameEntry.processName, reff-host -ErrorAction SilentlyContinue) { throw "请先手动退出 $($gameEntry.name) 和 REFF 宿主，再切换基线。" }
+# 兼容旧安装的进程检查：防止升级或恢复时改写仍在使用的文件。
+if (Get-Process -Name $gameEntry.processName, reff-host, reff-webview2-host, reff-webview2-p0 -ErrorAction SilentlyContinue) { throw "请先手动退出 $($gameEntry.name) 和 REFF 宿主，再切换基线。" }
 
 $entries = @(
     @{ path = 'plugins\REFF.dll'; disabled = 'plugins\REFF.dll.reff-disabled' },

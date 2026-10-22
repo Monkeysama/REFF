@@ -7,9 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要发布的版本标签，例如 v0.1.0-previewN'
+        description: '资产版本标签，例如 v0.1.0-previewN'
         required: true
         type: string
+      publish:
+        description: '人工验收记录匹配当前构建时上传 Release'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -44,10 +49,57 @@ jobs:
         shell: pwsh
         run: .\tools\fetch-dependencies.ps1
 
-      - name: 构建并发布
+      - name: 构建默认 WebView2 后端
+        shell: pwsh
+        run: |
+          .\tools\build-web.ps1 -IncludeExamples
+          .\tools\build.ps1
+          .\tools\build.ps1 -Profile GameTest -ExperimentalGames
+
+      - name: 为独立浏览器回归准备共享 Runtime
+        shell: pwsh
+        run: |
+          # CI 执行器显式准备依赖；用户游戏安装器不执行此下载/安装。
+          $bootstrap = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+          Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $bootstrap
+          $signature = Get-AuthenticodeSignature -LiteralPath $bootstrap
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'Runtime 安装器签名无效' }
+          $setup = Start-Process -FilePath $bootstrap -ArgumentList '/silent','/install' -WindowStyle Hidden -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "共享 Runtime 准备失败：$($setup.ExitCode)" }
+
+      - name: 独立浏览器和行为回归
+        shell: pwsh
+        run: |
+          .\tools\test-webview2-p1.ps1 -BuildRoot .\build-webview2-release
+          .\tools\test-webview2-p1.ps1 -BuildRoot .\build-webview2-release -Behavior
+
+      - name: 生成并校验分发资产
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
-          .\tools\release.ps1 -Tag $env:RELEASE_TAG -Publish
+          .\tools\release.ps1 -Tag $env:RELEASE_TAG -SkipBuild
+          .\tools\test-distribution.ps1
+          .\tools\test-release-contract.ps1 -Archive (Join-Path 'artifacts' ('REFF-'+$env:RELEASE_TAG.TrimStart('v')+'.zip'))
+          .\tools\test-examples-package.ps1 -Archive (Join-Path 'artifacts' ('REFF-'+$env:RELEASE_TAG.TrimStart('v')+'-examples.zip'))
+
+      - name: 上传构建资产与独立证据
+        uses: actions/upload-artifact@v4
+        with:
+          name: REFF-WebView2
+          path: |
+            artifacts/REFF-*.zip
+            artifacts/REFF-*.sha256
+            artifacts/webview2-p1/**/summary.json
+            artifacts/webview2-p1/**/integration-summary.json
+            artifacts/webview2-p1/**/smoke-summary.json
+            artifacts/webview2-p4/**/summary.json
+
+      - name: 通过人工验收门槛后发布
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: .\tools\release.ps1 -Tag $env:RELEASE_TAG -SkipBuild -Publish

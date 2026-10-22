@@ -1,20 +1,20 @@
 # REFF 游戏兼容性
 
-REFF 使用一套通用 CEF 宿主、Web Shell、Lua SDK 和插件协议。原生 Core 从 REFramework 初始化参数读取游戏 `target_name`，再选择图形与输入能力；不通过窗口标题或安装路径猜测游戏。
+REFF 默认使用系统共享的 WebView2 Evergreen 稳定版 Runtime、独立原生宿主、Web Shell、Lua SDK 和插件协议。原生 Core 从 REFramework 初始化参数读取游戏 `target_name`，再选择图形与输入能力；不通过窗口标题或安装路径猜测游戏。要求 Windows build ≥19045、Runtime ≥155.0.4283.62，实际测试环境为 build 26300 / Runtime 155；最低门槛不代表已逐环境认证。
 
 ## 验证实验游戏
 
-实验包中的目标均为候选状态，不能视为已兼容。安装前退出游戏，将实验包的 `reframework` 目录合并到对应游戏根目录；启动后按快捷键打开 REFF，先检查显示、移动、缩放、页面交互和输入框，再检查输入穿透、Alt-Tab、设备重建、Reset Scripts 和正常退出。
+实验包中的目标均为候选状态，不能视为已兼容。安装前退出游戏，按 README 使用随包安装器，或在新安装时将包内 `reframework` 目录合并到游戏根目录。启动后按快捷键打开 REFF，先检查显示、移动、连续边角缩放、三类页面和主页面/iframe 输入框，再检查键鼠穿透、快捷键、Alt-Tab、设备/交换链重建、休眠恢复、Reset Scripts 和正常退出。所有游戏操作由测试者手动完成。
 
-测试完成后，可在游戏退出状态运行实验包内的 `reff/tools/collect-installed-compatibility.ps1`，收集 `compatibility.log`、目标信息、系统版本和 DLL 哈希。不要把 `re2_framework_log.txt`、设置、缓存或输入内容作为诊断包发送。
+测试完成后，可运行包内 `reff/tools/collect-installed-compatibility.ps1`，生成版本、DLL/宿主哈希、Runtime/系统数值和初始化状态的最小 JSON 诊断包；普通包同样提供该工具。它不复制原始日志。不要把 `re2_framework_log.txt`、设置、缓存或输入内容作为诊断包发送。
 
 ## 当前矩阵
 
 | 游戏 | target_name | 渲染器 | 状态 |
 | --- | --- | --- | --- |
-| Monster Hunter Wilds | `MHWILDS` | D3D12  | 已验证 |
-| Monster Hunter Rise | `MHRISE` | D3D12  | 已验证 |
-| Resident Evil 4 | `RE4` | D3D12  | 已验证 |
+| Monster Hunter Wilds | `MHWILDS` | D3D12 | WebView2 游戏人工验收通过（含设置、输入、三类前端、缩放及恢复） |
+| Monster Hunter Rise | `MHRISE` | D3D12 | WebView2 游戏人工验收通过 |
+| Resident Evil 4 | `RE4` | D3D12 | 保留能力档案；WebView2 未测，因本机无游戏暂缓验收 |
 | Resident Evil Village | `RE8` | D3D12 | 实验候选，仅实验构建开放 |
 | Dragon's Dogma 2 | `DD2` | D3D12 | 实验候选，仅实验构建开放 |
 | Street Fighter 6 | `SF6` | D3D12 | 实验候选，仅实验构建开放 |
@@ -32,17 +32,19 @@ REFF 使用一套通用 CEF 宿主、Web Shell、Lua SDK 和插件协议。原�
 | Pragmata | `PRAGMATA` | D3D12 | 实验候选，仅实验构建开放 |
 | Onimusha: Way of the Sword | `ONIMUSHA_WOTS` | D3D12 | 实验候选，仅实验构建开放 |
 
-正式 Runtime 只开放已验证的游戏。其余必须使用显式启用实验游戏的开发构建，因没有完成游戏内验收，不属于正式支持。未列出的目标、仅识别目标、已禁用目标以及使用 D3D11 的运行实例都会在注册回调和安装输入 Hook 前拒绝初始化，并在 `data/REFF/log/compatibility.log` 记录原因。不能仅凭 REFramework 支持某款游戏就认定 REFF 可用。
+普通包保留 Wilds/Rise/RE4 三个既有能力档案，目录中的 `verified` 表示这一路原生接入档案已有历史验证，不等同于 WebView2 全项认证。新的游戏内结论以本表后端范围为准。其余目标必须使用显式实验构建，不属于正式支持。未列出、仅识别、已禁用目标及 D3D11 实例在注册回调和安装输入 Hook 前拒绝初始化，原因记录于 `data/REFF/log/compatibility.log`。
+
+独立回归可验证真实 WebView2/三类前端/Lua、权限边界、设置持久化、输入协议、离屏像素及隐藏 WARP DX12 输出；它不证明游戏输入、系统中文候选窗/剪贴板、实际 DPI 切换、物理设备重置和休眠恢复。游戏帧率及输入延迟未测，不以包体积缩小推导性能收益。
 
 游戏目录的唯一维护源是 `config/game-support.json`。构建系统从该文件生成只读 C++ 档案，部署和资源观测工具读取同一文件，避免目标名、可执行文件和支持状态分别维护。
 
 ## 实验构建
 
-实验游戏使用独立的 `build-compat`，不会覆盖正式 `build-ime`：
+实验游戏使用独立的 `build-webview2-compat`，不覆盖普通 `build-webview2-release`：
 
 ```powershell
 .\tools\build.ps1 -Profile GameTest -ExperimentalGames
-.\tools\stage.ps1 -BuildRoot .\build-compat -IncludeExamples
+.\tools\stage.ps1 -BuildRoot .\build-webview2-compat -StagingRoot .\staging\compatibility-build-modern
 ```
 
 `staging/build-profile.json` 记录当前 staging 是否允许实验游戏。
@@ -61,7 +63,7 @@ REFF 使用一套通用 CEF 宿主、Web Shell、Lua SDK 和插件协议。原�
 .\tools\collect-compatibility.ps1 -ReframeworkRoot "<游戏目录>\reframework"
 ```
 
-诊断包只包含 `compatibility.log`、目标信息、系统版本和 REFF DLL 的 SHA-256，不收集 REFramework 主日志、用户设置、缓存或输入文本。
+诊断包只包含字段白名单生成的 `report.json`，不收集原始日志、用户设置、缓存或输入文本。宿主尚未退出时 summary 可能尚未写出；缺失字段保持缺失，不推断为正常或已通过。
 
 ## 插件声明
 

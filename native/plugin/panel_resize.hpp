@@ -6,7 +6,7 @@
 
 namespace reff {
 
-// W2 缩放状态机；只计算候选矩形，不接触 CEF、输入消息或渲染资源。
+// W2 缩放状态机；只计算候选矩形，不接触 浏览器、输入消息或渲染资源。
 // 调用线程通常是游戏窗口线程；快照读取可来自 Present 线程，内部互斥保护状态。
 class PanelResizeController {
 public:

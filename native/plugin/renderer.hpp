@@ -19,7 +19,7 @@ public:
         std::uint64_t cursor_draws{};
     };
     bool initialize(ID3D12Device* device, IDXGISwapChain* swapchain, ID3D12CommandQueue* queue);
-    // 在同一条 Present 命令列表中先合成 CEF 面板，再在游戏客户区绘制虚拟光标。
+    // 在同一条 Present 命令列表中先合成浏览器面板，再在游戏客户区绘制虚拟光标。
     // cursor_position 使用游戏客户区物理像素，调用方负责在该客户区内裁剪。
     bool draw(SharedFrame& frame, std::pair<int, int> cursor_position, bool cursor_visible,
               std::pair<int, int> client_size, std::pair<int, int> panel_origin = {-1, -1}, RECT display_rect = {}, int cursor_mode = 0,
@@ -30,7 +30,7 @@ public:
     // 只在 Present 线程调用：宿主换代后保留 GPU 资源，但不显示旧会话内容。
     void invalidate_frame() { sequence_ = 0; uploaded_ = false; }
     RECT panel_rect() const;
-    // Present 线程转换面板矩形，供窗口线程的 CEF 命中与 IME 候选位置共享客户区坐标。
+    // Present 线程转换面板矩形，供窗口线程的浏览器命中与 IME 候选位置共享客户区坐标。
     RECT panel_client_rect(std::pair<int, int> client_size, std::pair<int, int> origin = {-1, -1}) const;
     HWND window() const { return window_; }
     // 仅由持有 renderer_mutex 的 Present 调用者读取；失败后保留诊断直到下次渲染尝试。

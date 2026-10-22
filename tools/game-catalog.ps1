@@ -1,4 +1,4 @@
-# 游戏目录辅助函数只读取仓库内的 config/game-support.json；调用脚本负责决定允许哪些支持状态。
+﻿# 游戏目录辅助函数只读取仓库内的 config/game-support.json；调用脚本负责决定允许哪些支持状态。
 function Get-REFFGameCatalog([string]$RepositoryRoot) {
     $catalogPath = Join-Path $RepositoryRoot 'config\game-support.json'
     if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) { throw "缺少游戏目录：$catalogPath" }

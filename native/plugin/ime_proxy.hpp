@@ -11,7 +11,7 @@
 namespace reff {
 
 // 游戏进程内的透明 EDIT 代理：只负责取得 Windows IME 原生焦点，不绘制可见 UI。
-// 控件由专用线程拥有，消息结果通过无阻塞回调发送给 CEF 宿主；调用者负责会话生命周期。
+// 控件由专用线程拥有，消息结果通过无阻塞回调发送给浏览器宿主；调用者负责会话生命周期。
 class ImeProxy {
 public:
     using Sender = std::function<void(Json)>;
@@ -81,9 +81,9 @@ private:
     // 只在新输入会话建立时读取游戏窗口的起始布局；输入过程中由 Windows/IME 自行切换。
     DWORD owner_thread_id_{};
     bool redirected_input_reported_{};
-    // 组合生命周期只在线程窗口过程中访问；用于在取消/结束消息时清理 CEF 状态。
+    // 组合生命周期只在线程窗口过程中访问；用于在取消/结束消息时清理浏览器状态。
     bool composition_active_{};
-    // 每次 ImeCommitText 后记录仍可能由 TranslateMessage 产生的 WM_CHAR 数。
+    // 每次 IME 提交消息 后记录仍可能由 TranslateMessage 产生的 WM_CHAR 数。
     // WM_IME_CHAR 始终属于 IME 提交路径，统一丢弃，不能占用这个计数。
     int suppress_chars_{};
     static inline ImeProxy* instance_{};

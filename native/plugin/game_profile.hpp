@@ -35,7 +35,7 @@ struct GameCatalogEntry {
 
 #include "game_catalog.generated.hpp"
 
-// 游戏适配档案只描述原生能力和验证状态；网页、CEF、Lua 协议不按游戏分叉。
+// 游戏适配档案只描述原生能力和验证状态；网页、浏览器、Lua 协议不按游戏分叉。
 // 本结构在插件初始化线程创建并按值保存，后续线程只读。
 struct GameProfile {
     std::string target;

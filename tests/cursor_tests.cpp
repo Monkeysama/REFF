@@ -45,7 +45,7 @@ int main() {
         require(virtual_cursor.position() == std::pair{0, 899}, "relative cursor coordinates must clamp");
         virtual_cursor.move_absolute(65535, 65535);
         require(virtual_cursor.position() == std::pair{1439, 899}, "absolute cursor coordinates must map to bounds");
-        // 游戏客户区不是固定 CEF 画布：尺寸变化后光标保持相对位置并继续按新的边界裁剪。
+        // 游戏客户区不是固定浏览器画布：尺寸变化后光标保持相对位置并继续按新的边界裁剪。
         virtual_cursor.set_bounds(1920, 1080);
         require(virtual_cursor.position() == std::pair{1439, 899}, "resizing must preserve a valid client position");
         virtual_cursor.move_relative(5000, 5000);

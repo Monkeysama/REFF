@@ -72,7 +72,7 @@ bool Renderer::initialize(ID3D12Device* device, IDXGISwapChain* swapchain, ID3D1
         auto resource_desc = slots_[0].target->GetDesc();
         width_ = UINT(resource_desc.Width); height_ = resource_desc.Height;
         // 命令资源独立于交换链缓冲区，避免某个 backbuffer 的 fence 未完成时整次面板合成被跳过。
-        // 保留足够的在途命令，覆盖高刷新率、帧生成和 CEF 鼠标重绘同时发生的情况。
+        // 保留足够的在途命令，覆盖高刷新率、帧生成和浏览器鼠标重绘同时发生的情况。
         const auto command_frame_count = std::max<std::size_t>(desc.BufferCount + 8, 12);
         command_frames_.resize(command_frame_count);
         for (auto& command_frame : command_frames_)
@@ -192,7 +192,7 @@ bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, boo
             command_frame = &candidate;
         }
         int frame_width{}, frame_height{}; std::uint64_t viewport_generation{};
-        // 实时缩放允许接受最近到达的完整帧；CEF 重排可能落后于输入，不能因追逐最新 generation 而停住画面。
+        // 实时缩放允许接受最近到达的完整帧；浏览器 重排可能落后于输入，不能因追逐最新 generation 而停住画面。
         const bool changed = frame.read(pixels_, sequence_, frame_width, frame_height, viewport_generation);
         if (!changed && !uploaded_) return true;
         check(command_frame->allocator->Reset()); check(list_->Reset(command_frame->allocator.Get(), pipeline_.Get()));
@@ -228,7 +228,7 @@ bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, boo
         auto target = rtv_->GetCPUDescriptorHandleForHeapStart(); target.ptr += index * rtv_step_;
         list_->OMSetRenderTargets(1, &target, FALSE, nullptr);
         auto panel_client = (display_rect.right > display_rect.left && display_rect.bottom > display_rect.top) ? display_rect : panel_client_rect(client_size, panel_origin);
-        // 缩放期间对新旧 CEF 帧的源宽高比做渐进过渡；面板矩形每帧立即跟随，避免 100ms 重排节拍造成跳动。
+        // 缩放期间对新旧浏览器帧的源宽高比做渐进过渡；面板矩形每帧立即跟随，避免 100ms 重排节拍造成跳动。
         const LONG target_width = panel_client.right - panel_client.left, target_height = panel_client.bottom - panel_client.top;
         if (!panel_resizing) displayed_content_aspect_ = target_content_aspect_;
         else displayed_content_aspect_ += (target_content_aspect_ - displayed_content_aspect_) * 0.22f;
@@ -253,7 +253,7 @@ bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, boo
             float(frame_width_) / frame_max_width, float(frame_height_) / frame_max_height, 0, 0};
         list_->SetGraphicsRoot32BitConstants(1, 12, panel_parameters, 0);
         list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST); list_->DrawInstanced(3, 1, 0, 0);
-        // 光标叠加在面板之后，且使用完整游戏客户区 viewport，不受 CEF 固定大小画布裁剪。
+        // 光标叠加在面板之后，且使用完整游戏客户区 viewport，不受浏览器固定大小画布裁剪。
         RECT client_rect{0, 0, LONG(width_), LONG(height_)};
         D3D12_VIEWPORT client_viewport{0, 0, float(width_), float(height_), 0, 1};
         list_->RSSetViewports(1, &client_viewport); list_->RSSetScissorRects(1, &client_rect);

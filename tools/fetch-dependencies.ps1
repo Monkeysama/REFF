@@ -21,4 +21,4 @@ function Install-LockedArchive($Name, $Entry, $ArchiveName) {
 }
 
 Install-LockedArchive 'reframework' $lock.reframework 'reframework.tar.gz'
-Install-LockedArchive 'cef' $lock.cef 'cef-minimal.tar.bz2'
+& (Join-Path $PSScriptRoot 'fetch-webview2-sdk.ps1')

@@ -1,37 +1,53 @@
-param(
-    [Parameter(Mandatory = $true)][string]$ReframeworkRoot
-)
-$ErrorActionPreference = 'Stop'
-
-# 安装包诊断收集器只读取 REFF 自有低频日志；不依赖源码仓库，也不收集用户设置或输入内容。
-$targetRoot = [IO.Path]::GetFullPath($ReframeworkRoot).TrimEnd('\')
-if ((Split-Path $targetRoot -Leaf) -ne 'reframework') { throw '目标必须是游戏目录下的 reframework 目录。' }
-$metadataPath = Join-Path $targetRoot 'reff\compatibility\package.json'
-$logPath = Join-Path $targetRoot 'data\REFF\log\compatibility.log'
-$dllPath = Join-Path $targetRoot 'plugins\REFF.dll'
-if (-not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) { throw '当前安装不是带诊断元数据的 REFF 实验兼容包。' }
-if (-not (Test-Path -LiteralPath $logPath -PathType Leaf)) { throw '尚未生成 compatibility.log，请先启动游戏并让 REFF 完成初始化。' }
-if (-not (Test-Path -LiteralPath $dllPath -PathType Leaf)) { throw '没有找到 reframework\plugins\REFF.dll。' }
-
-$metadata = [IO.File]::ReadAllText($metadataPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
-$targets = if ($metadata.targets) { @($metadata.targets | ForEach-Object { [string]$_ }) } else { @([string]$metadata.target) }
-$outputRoot = Join-Path $targetRoot 'data\REFF\diagnostics'
-$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$workRoot = Join-Path $outputRoot "REFF-$($metadata.target)-$stamp"
-$archive = "$workRoot.zip"
-New-Item -ItemType Directory -Force -Path $workRoot | Out-Null
-Copy-Item -LiteralPath $logPath -Destination (Join-Path $workRoot 'compatibility.log')
-[ordered]@{
-    schemaVersion = 1
-    target = ($targets -join ',')
-    targets = $targets
-    games = @($metadata.games)
-    supportStatus = [string]$metadata.supportStatus
-    packageVersion = [string]$metadata.version
-    collectedUtc = [DateTime]::UtcNow.ToString('o')
-    reffDllSha256 = (Get-FileHash -LiteralPath $dllPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    operatingSystem = [Environment]::OSVersion.VersionString
-} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $workRoot 'report.json') -Encoding utf8
-Compress-Archive -LiteralPath $workRoot -DestinationPath $archive -CompressionLevel Optimal
-Remove-Item -LiteralPath $workRoot -Recurse -Force
-Write-Output "兼容诊断包已生成：$archive"
+﻿param([Parameter(Mandatory=$true)][string]$ReframeworkRoot)
+$ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'package-files.ps1')
+# 普通包和实验包均可离线收集；仅输出白名单版本、数值与状态，不复制原始日志或输入文本。
+$target=[IO.Path]::GetFullPath($ReframeworkRoot).TrimEnd('\')
+if ((Split-Path $target -Leaf) -ne 'reframework') { throw '目标必须是游戏目录下的 reframework' }
+$null=Resolve-REFFFile $target 'reff/package.json'
+function Assert-DiagnosticPath([string]$Path) {
+    $pathPart=[IO.Path]::GetFullPath($Path)
+    if (-not $pathPart.StartsWith($target+'\',[StringComparison]::OrdinalIgnoreCase)) { throw '诊断路径越界' }
+    while ($pathPart) {
+        if ((Test-Path -LiteralPath $pathPart) -and ((Get-Item -LiteralPath $pathPart -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw '诊断路径包含重解析点' }
+        $pathPart=Split-Path -Parent $pathPart
+    }
+}
+$metadata=Get-Content -LiteralPath (Resolve-REFFFile $target 'reff/package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$report=[ordered]@{schemaVersion=2;backend='webview2';collectedUtc=[DateTime]::UtcNow.ToString('o');operatingSystem=[Environment]::OSVersion.Version.ToString();experimentalGames=[bool]$metadata.experimentalGames;gameValidated=$false}
+if ([string]$metadata.version -match '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { $report.packageVersion=[string]$metadata.version }
+foreach ($pair in @(@('reffDllSha256','plugins/REFF.dll'),@('hostSha256','reff/runtime/reff-webview2-host.exe'))) {
+    $file=Resolve-REFFFile $target $pair[1]
+    if (Test-Path -LiteralPath $file -PathType Leaf) { $report[$pair[0]]=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() }
+}
+$summary=Join-Path $target 'data/REFF/log/webview2/summary.json'
+Assert-DiagnosticPath $summary
+if ((Test-Path -LiteralPath $summary -PathType Leaf) -and (Get-Item -LiteralPath $summary).Length -le 1MB) {
+    try {
+        $hostSummary=Get-Content -LiteralPath $summary -Raw -Encoding UTF8 | ConvertFrom-Json
+        $safe=[ordered]@{}
+        foreach ($key in @('runtime','minimumRuntime')) {
+            $value=[string]$hostSummary.$key
+            if ($value -match '^\d+\.\d+\.\d+\.\d+$') { $safe[$key]=$value }
+        }
+        foreach ($key in @('osBuild','minimumOsBuild','exitCode','hresult','runtimeDetectionHresult','publishedFrames','publishedBytes','firstPublishedMs','navigationReadyMs')) {
+            $value=$hostSummary.$key
+            if ($null -ne $value -and ($value -is [ValueType]) -and $value -isnot [bool]) { $safe[$key]=$value }
+        }
+        $report.host=$safe
+    } catch { $report.hostSummaryUnreadable=$true }
+}
+$log=Join-Path $target 'data/REFF/log/compatibility.log'
+Assert-DiagnosticPath $log
+if ((Test-Path -LiteralPath $log -PathType Leaf) -and (Get-Item -LiteralPath $log).Length -le 1MB) {
+    $text=[IO.File]::ReadAllText($log)
+    $report.native=[ordered]@{initialized=$text.Contains('initialization=complete');hostStarted=$text.Contains('host process=started');handshake=$text.Contains('host handshake=ok');dx12=$text.Contains('renderer initialized=d3d12');rendererReset=$text.Contains('renderer reset')}
+    $matched=[regex]::Match($text,'target=([A-Z0-9_]{1,48}) status=(verified|experimental|disabled)')
+    if ($matched.Success) { $report.native.target=$matched.Groups[1].Value;$report.native.status=$matched.Groups[2].Value }
+}
+$work=Join-Path $target ('data/REFF/diagnostics/REFF-'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
+Assert-DiagnosticPath (Join-Path $work 'report.json')
+New-Item -ItemType Directory -Path $work -Force | Out-Null
+$report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $work 'report.json') -Encoding UTF8
+Compress-Archive -LiteralPath (Join-Path $work 'report.json') -DestinationPath "$work.zip" -CompressionLevel Optimal
+Write-Output "诊断包已生成：$work.zip"

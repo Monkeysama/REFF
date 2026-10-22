@@ -64,7 +64,7 @@ int main() {
             "recognized profile cannot initialize");
         require(reff::compatibility_decision(disabled, true, true) == reff::CompatibilityDecision::disabled,
             "disabled profile cannot initialize");
-        require(reff::starts_new_ime_session({}, "embedded:example.vue:text", true), "new IME session primes CEF focus");
+        require(reff::starts_new_ime_session({}, "embedded:example.vue:text", true), "new IME session primes浏览器focus");
         require(!reff::starts_new_ime_session("embedded:example.vue:text", "embedded:example.vue:text", true), "repeat IME report preserves proxy focus");
         require(!reff::starts_new_ime_session("embedded:example.vue:text", "embedded:example.vue:text", false), "IME deactivation does not prime focus");
         // 用可控时钟覆盖无握手、正常连接、断管和退出，避免依赖 15 秒真实等待。
@@ -102,7 +102,7 @@ int main() {
             client.stop(); server.stop();
             require(received_count.load() == 1, "disconnected queue was not replayed");
         }
-        // 覆盖身份伪造和同 frame 重载；独立测试不替代真实 CEF 文档生命周期验收。
+        // 覆盖身份伪造和同 frame 重载；独立测试不替代真实浏览器文档生命周期验收。
         const reff::Json page_request{{"method", "example.counter.get"}, {"params", reff::Json::object()}};
         require(reff::valid_page_request(page_request), "minimal page request accepted");
         for (const auto* field : {"pluginId", "pageId", "frameId", "sessionId", "epoch", "id", "type"}) {
@@ -132,7 +132,7 @@ int main() {
         for (int i = 0; i < reff::queue_limit; ++i) require(queue.push(i), "queue capacity");
         require(!queue.push(999), "queue backpressure");
         require(queue.pop().value() == 0, "queue FIFO"); queue.clear(); require(!queue.pop(), "queue clear");
-        // Windows 将快速第二次按下替换为 DBLCLK；CEF 的按下与抬起必须保持相同点击次数。
+        // Windows 将快速第二次按下替换为 DBLCLK；浏览器 的按下与抬起必须保持相同点击次数。
         reff::MouseClickTracker clicks;
         auto left_down = clicks.translate(WM_LBUTTONDOWN);
         auto left_up = clicks.translate(WM_LBUTTONUP);
@@ -152,8 +152,9 @@ int main() {
         require(!reff::should_block_keyboard(true, true, false), "keyboard passthrough");
         require(reff::should_block_keyboard(true, true, true), "text focus overrides keyboard passthrough");
         require(!reff::should_block_keyboard(false, false, true), "hidden panel releases keyboard");
-        require(reff::cef_keyboard_modifiers(false, true, false) == 4, "control modifier uses the CEF control bit");
-        require(reff::cef_keyboard_modifiers(true, true, true, true, true) == 94, "combined input modifiers preserve every CEF flag");
+        require(reff::input_modifiers(false, true, false) == 4, "control modifier uses the浏览器control bit");
+        require(reff::input_modifiers(false, false, false, false, false, true) == 128, "meta modifier uses the浏览器command bit");
+        require(reff::input_modifiers(true, true, true, true, true) == 94, "combined input modifiers preserve every浏览器flag");
         // Core 设置必须拒绝未知字段、原子落盘，并按客户区比例恢复窗口几何。
         {
             const auto directory = std::filesystem::temp_directory_path() / (L"reff-settings-test-" + std::to_wstring(GetCurrentProcessId()));
@@ -208,7 +209,7 @@ int main() {
         require(reader.read(result, sequence, frame_width, frame_height) && result == resized && frame_width == 640 && frame_height == 480,
             "resized frame snapshot");
         require(!reader.read(result, sequence), "unchanged frame skipped");
-        // viewport 代次变化必须生成新快照，即使尺寸和像素完全相同，渲染器才能确认 CEF 已响应本次重排。
+        // viewport 代次变化必须生成新快照，即使尺寸和像素完全相同，渲染器才能确认浏览器已响应本次重排。
         std::uint64_t viewport_generation{};
         require(writer.write(resized.data(), 640, 480, 2), "write new viewport generation");
         require(reader.read(result, sequence, frame_width, frame_height, viewport_generation) && viewport_generation == 2,

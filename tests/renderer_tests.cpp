@@ -4,7 +4,7 @@
 
 using namespace reff;
 namespace {
-// 独立 WARP 渲染回归：所有资源归本进程所有，隐藏窗口不接收用户输入；不启动游戏或 CEF。
+// 独立 WARP 渲染回归：所有资源归本进程所有，隐藏窗口不接收用户输入；不启动游戏或 浏览器。
 void check(HRESULT value) { if (FAILED(value)) throw std::runtime_error("Test DX12 HRESULT=" + std::to_string(value)); }
 void transition(ID3D12GraphicsCommandList* list, ID3D12Resource* target, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
     D3D12_RESOURCE_BARRIER b{}; b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;

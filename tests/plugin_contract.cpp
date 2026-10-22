@@ -103,7 +103,7 @@ int wmain(int argc, wchar_t** argv) {
         if (cursor_messages_forwarded != 1 || SendMessageW(window, WM_APP + 1, 0, 0) != 42)
             throw std::runtime_error("cursor message dispatch broke window chain");
         // 在无宿主安装的测试目录触发真实 DLL 启动失败，验证释放与下一次 F8 重试。
-        const auto missing_host = std::filesystem::absolute(argv[1]).parent_path().parent_path() / L"reff/runtime/reff-host.exe";
+        const auto missing_host = std::filesystem::absolute(argv[1]).parent_path().parent_path() / L"reff/runtime/reff-webview2-host.exe";
         if (std::filesystem::exists(missing_host)) throw std::runtime_error("failure fixture unexpectedly contains a host");
         for (int attempt = 1; attempt <= 2; ++attempt) {
             message(window, WM_KEYDOWN, VK_F8, 0);

@@ -8,9 +8,9 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 
 # 构建配置使用独立目录和显式功能开关，避免默认构建覆盖已验收的游戏测试 DLL。
 if ($ExperimentalGames -and $Profile -ne 'GameTest') { throw '实验游戏构建必须使用 -Profile GameTest。' }
-$buildDirectoryName = if ($ExperimentalGames) { 'build-compat' } elseif ($Profile -eq 'GameTest') { 'build-ime' } else { 'build' }
+$buildDirectoryName = if ($ExperimentalGames) { 'build-webview2-compat' } elseif ($Profile -eq 'GameTest') { 'build-webview2-release-test' } else { 'build-webview2-release' }
 $buildRoot = Join-Path $repoRoot $buildDirectoryName
-$imeProxy = if ($Profile -eq 'GameTest') { 'ON' } else { 'OFF' }
+$imeProxy = 'ON'
 $imeDiagnostics = if ($Profile -eq 'GameTest') { 'ON' } else { 'OFF' }
 $perfDiagnostics = if ($Profile -eq 'GameTest') { 'ON' } else { 'OFF' }
 $experimentalGameSupport = if ($ExperimentalGames) { 'ON' } else { 'OFF' }
@@ -22,7 +22,10 @@ if (-not $vsRoot) { throw '未找到带 C++ 工具链的 Visual Studio' }
 $cmake = Join-Path $vsRoot 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
 $ctest = Join-Path (Split-Path $cmake) 'ctest.exe'
 
-& $cmake -S $repoRoot -B $buildRoot -G 'Visual Studio 18 2026' -A x64 `
+$vsMajor = ((& $vswhere -latest -products '*' -property installationVersion) -split '\.')[0]
+$generator = if ($vsMajor -eq '18') { 'Visual Studio 18 2026' } else { 'Visual Studio 17 2022' }
+& $cmake -S $repoRoot -B $buildRoot -G $generator -A x64 `
+    "-DREFF_ENABLE_WEBVIEW2=ON" "-DREFF_BUILD_WEBVIEW2_HOST=ON" `
     "-DREFF_ENABLE_IME_PROXY=$imeProxy" "-DREFF_ENABLE_IME_DIAGNOSTICS=$imeDiagnostics" `
     "-DREFF_ENABLE_PERF_DIAGNOSTICS=$perfDiagnostics" `
     "-DREFF_ENABLE_EXPERIMENTAL_GAMES=$experimentalGameSupport"

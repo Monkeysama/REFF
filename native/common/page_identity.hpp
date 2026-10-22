@@ -2,7 +2,7 @@
 #include "protocol.hpp"
 
 namespace reff {
-// 宿主 UI 线程持有页面身份；frame 标识来自 CEF，generation 区分同一 frame 的不同文档。
+// 宿主 UI 线程持有页面身份；frame 标识来自 浏览器，generation 区分同一 frame 的不同文档。
 // Shell 是框架自有页面，不冒充插件；插件身份将在独立入口加载时由 manifest 分配。
 struct PageIdentity {
     int browser_id{};
