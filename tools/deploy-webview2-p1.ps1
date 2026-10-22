@@ -5,9 +5,12 @@ $repoRoot=Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'webview2-p1-package.ps1')
 $target=[IO.Path]::GetFullPath($ReframeworkRoot).TrimEnd('\')
 $gameRoot=Split-Path $target -Parent
-$game=Find-REFFGame $repoRoot $gameRoot @('verified')
-if(-not $game -or (Split-Path $target -Leaf) -ne 'reframework' -or -not (Test-Path -LiteralPath (Join-Path $gameRoot 'dinput8.dll'))){throw 'P1 只部署到已验证且安装 REFramework 的游戏'}
-if(Get-Process -Name $game.processName -ErrorAction SilentlyContinue){throw '检测到游戏仍在运行，请手动退出后再部署'}
+$game=Find-REFFGame $repoRoot $gameRoot @('tested', 'untested')
+if((Split-Path $target -Leaf) -ne 'reframework' -or -not (Test-Path -LiteralPath (Join-Path $gameRoot 'dinput8.dll'))){throw '目标必须是已安装 REFramework 的游戏'}
+$processNames=if($game){@($game.processName)}else{@(Get-ChildItem -LiteralPath $gameRoot -File -Filter '*.exe' | ForEach-Object {[IO.Path]::GetFileNameWithoutExtension($_.Name)})}
+if(-not $processNames){throw '游戏根目录没有可用于退出检查的 EXE'}
+if(-not $game){$game=[pscustomobject]@{target='GENERIC';status='untested'}}
+if(Get-Process -Name $processNames -ErrorAction SilentlyContinue){throw '检测到游戏仍在运行，请手动退出后再部署'}
 if(-not $StagingRoot){$StagingRoot=(Get-Content -LiteralPath (Join-Path $repoRoot 'artifacts/webview2-p1/stage-latest.json') -Raw | ConvertFrom-Json).stage}
 $sourceRoot=Join-Path $StagingRoot 'reframework'
 # Windows PowerShell 5.1 会把 ConvertFrom-Json 的数组作为单个管道对象，不再用 @() 二次包装。
@@ -35,7 +38,7 @@ $changes=@(foreach($file in $files){
     [pscustomobject]@{path=$file.path;existed=$existed}
 })
 [pscustomobject]@{targetRoot=$target;files=$changes} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $backup 'restore-info.json') -Encoding utf8
-if(Get-Process -Name $game.processName -ErrorAction SilentlyContinue){throw '部署前检测到游戏已启动，停止覆盖'}
+if(Get-Process -Name $processNames -ErrorAction SilentlyContinue){throw '部署前检测到游戏已启动，停止覆盖'}
 foreach($file in $files){
     $destination=Resolve-REFFP1Path $target $file.path
     New-Item -ItemType Directory -Path (Split-Path $destination) -Force | Out-Null

@@ -12,19 +12,15 @@ REFF 是 REFramework 的扩展，不替换或修改 REFramework 原有菜单和�
 
 ## 支持范围
 
-当前兼容状态：
+v1.0.0 正式版默认面向全部 RE Engine 游戏，统一使用一个核心包；游戏须已接入 REFramework，并以 **D3D12** 运行。未列出的 REFramework 目标使用通用档案。D3D11 绘制后端尚未实现。
 
-| 游戏 | REFramework 目标名 | 图形接口 | 状态 |
-| --- | --- | --- | --- |
-| Monster Hunter Wilds | `MHWILDS` | D3D12 | WebView2 游戏人工验收通过（含设置、输入、三类前端、缩放及恢复） |
-| Monster Hunter Rise | `MHRISE` | D3D12 | WebView2 游戏人工验收通过 |
-| Resident Evil 4 | `RE4` | D3D12 | 保留能力档案；WebView2 未测，因本机无游戏暂缓验收 |
+| 游戏 | 状态 |
+| --- | --- |
+| Monster Hunter Wilds | 已经测试 |
+| Monster Hunter Rise | 已经测试 |
+| 其他 RE Engine 游戏 | 未测试 |
 
-普通包保留以上 3 款游戏的原生能力档案；本轮按用户确认的 Wilds、Rise 范围验收；RE4 不作已验证声明。当前 WebView2 分发产物用于预发布验证。统一实验包另提供 16 个现代 D3D12 候选目标；它们不代表已完成兼容。D3D11 后端尚未实现，详细范围见[游戏兼容性](docs/compatibility.zh-CN.md)。
-
-统一实验包用于没有本机验证条件的候选游戏，安装方式与正式包相同，但只应在对应游戏中使用。
-
-实验包中的目标仍会经过运行时 D3D12 检查，未通过检查时不会安装游戏输入 Hook。
+完整游戏列表见[游戏兼容性](docs/compatibility.zh-CN.md)。测试状态仅记录实际测试情况，不限制默认启用范围。
 
 ## 安装
 
@@ -49,7 +45,7 @@ REFF 是 REFramework 的扩展，不替换或修改 REFramework 原有菜单和�
 
 设置、第三方插件和独立示例会保留。备份含旧版本，升级后的游戏目录可能暂时仍很大；确认不再需要恢复后再自行删除对应备份。
 
-示例插件为同版本独立增量包，安装核心包后合并到游戏目录即可。它包含 Vue 3、React、原生 HTML 的构建产物，以及 `reff/examples-dev` 下的源码、SDK、公共 UI 源码、独立 Vite 配置和锁定依赖，不重复包含 DLL、浏览器引擎或 Shell，也不包含 node_modules。普通包和实验包均不附带示例。
+示例插件不随版本更新发布。源码位于 [Vue 3 示例](web/plugins/example.vue)、[React 示例](web/plugins/example.react)、[原生 HTML 示例](web/plugins/example.html)，Lua 后端位于 [examples/lua/REFF.examples.lua](examples/lua/REFF.examples.lua)，构建与同步说明见[示例开发](web/examples-dev/README.zh-CN.md)。
 
 ## 文件位置
 
@@ -84,7 +80,7 @@ reframework/data/REFF/backups/      安装事务备份；不属于 Runtime 分�
 ## 故障排查
 
 - 面板不显示：确认 REFramework 已加载，关闭原生菜单后按 F8；检查 `data/REFF/log/`。
-- 页面纯灰或资源缺失：确认 Runtime 包和示例包来自同一版本，并重新合并 `reframework` 目录。
+- 页面纯灰或资源缺失：重新安装正式核心包；自建插件请核对资源路径及 API 版本。
 - 依赖不可用：检查 `data/REFF/log/webview2/summary.json` 中的系统/Runtime 检测结果；安装或更新官方稳定版 Evergreen Runtime。
 - 中文输入异常：默认构建已启用透明 IME 代理；检查 `data/REFF/log/` 并说明发生在主页面还是插件输入框。
 - 修改 Lua 后：执行 REFramework 的 Reset Scripts；修改网页资源后重新打开插件页面即可，必要时增加资源版本号避免缓存。
@@ -104,9 +100,11 @@ pnpm --dir .\web\shell install --frozen-lockfile
 .\tools\test-distribution.ps1
 ```
 
-默认构建输出到 `build-webview2-release`，仅构建 WebView2 宿主。浏览器自检需要上述共享 Runtime 和可用的 Windows 图形会话；自检仅操作独立隐藏宿主，不操作游戏。`tools/release.ps1 -Tag <版本标签>` 生成普通包、实验包、示例增量包和 SHA-256；只有显式传入 `-Publish` 且当前原生产物的游戏验收记录齐全，才允许上传。
+默认构建输出到 `build-webview2-release`，仅构建 WebView2 宿主。浏览器自检需要上述共享 Runtime 和可用的 Windows 图形会话；自检仅操作独立隐藏宿主，不操作游戏。`tools/release.ps1 -Tag v1.0.0` 仅生成 `REFF-1.0.0.zip` 和 SHA-256，不再生成实验包、示例包或预览版。标签必须与 `version.json` 完全一致。显式 `-Publish` 上传正式 Release；GitHub Actions 推送正式版本标签时自动构建、回归并发布，手动运行可选择只生成资产。
 
 ## 文档
+
+- [更新日志](CHANGELOG.md)
 
 - [插件开发](docs/plugin-development.zh-CN.md)
 - [运行时架构](docs/architecture.zh-CN.md)

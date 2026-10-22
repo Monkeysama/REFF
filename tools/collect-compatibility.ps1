@@ -10,8 +10,12 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $targetRoot = [IO.Path]::GetFullPath($ReframeworkRoot).TrimEnd('\')
 if ((Split-Path $targetRoot -Leaf) -ne 'reframework') { throw '目标必须是游戏目录下的 reframework 目录。' }
 $gameRoot = Split-Path $targetRoot -Parent
-$game = Find-REFFGame $repoRoot $gameRoot @('verified', 'experimental')
-if (-not $game) { throw '无法从游戏目录识别 REFF 游戏目标。' }
+$game = Find-REFFGame $repoRoot $gameRoot @('tested', 'untested')
+if (-not $game) {
+    $exe=Get-ChildItem -LiteralPath $gameRoot -File -Filter '*.exe' | Select-Object -First 1
+    if(-not $exe){throw '游戏根目录未找到可执行文件。'}
+    $game=[pscustomobject]@{target='GENERIC';name='未列入目录的 REFramework 游戏';status='untested'}
+}
 $logPath = Join-Path $targetRoot 'data\REFF\log\compatibility.log'
 if (-not (Test-Path -LiteralPath $logPath -PathType Leaf)) { throw '尚未生成 compatibility.log，请先启动游戏并让 REFF 完成初始化。' }
 

@@ -10,7 +10,7 @@
 #include "keyboard_capture.hpp"
 #include "keyboard_event.hpp"
 #include "game_profile.hpp"
-// 预览构建标识：确保发布候选包重新生成 Core DLL，便于核对构建时间与版本。
+// 正式运行时版本由根目录 version.json 在构建时统一注入。
 #include <windowsx.h>
 #include <commctrl.h>
 #include <imm.h>
@@ -45,9 +45,6 @@ using SetCursorPosFunction = BOOL(WINAPI*)(int, int);
 #endif
 #ifndef REFF_ENABLE_RESIZE_DIAGNOSTICS
 #define REFF_ENABLE_RESIZE_DIAGNOSTICS 0
-#endif
-#ifndef REFF_ENABLE_EXPERIMENTAL_GAMES
-#define REFF_ENABLE_EXPERIMENTAL_GAMES 0
 #endif
 #ifndef REFF_PROJECT_VERSION
 #define REFF_PROJECT_VERSION "unknown"
@@ -1401,14 +1398,12 @@ extern "C" __declspec(dllexport) bool reframework_plugin_initialize(const REFram
     runtime->root = std::filesystem::path(path).parent_path().parent_path();
     runtime->game = game_profile_for(param->version->game_name ? param->version->game_name : "");
     reset_compatibility_log();
-    constexpr bool experimental_build = REFF_ENABLE_EXPERIMENTAL_GAMES != 0;
     const auto decision = compatibility_decision(runtime->game,
-        param->renderer_data->renderer_type == REFRAMEWORK_RENDERER_D3D12, experimental_build);
+        param->renderer_data->renderer_type == REFRAMEWORK_RENDERER_D3D12);
     compatibility_log("reff_version=" REFF_PROJECT_VERSION " reframework_api=" + std::to_string(param->version->major) + "." +
         std::to_string(param->version->minor) + "." + std::to_string(param->version->patch));
     compatibility_log("target=" + runtime->game.target + " status=" + std::string(support_status_name(runtime->game.status)) +
         " renderer=" + (param->renderer_data->renderer_type == REFRAMEWORK_RENDERER_D3D12 ? "d3d12" : "other") +
-        " experimental_build=" + (experimental_build ? "1" : "0") +
         " ime_proxy_compiled=" + (REFF_ENABLE_IME_PROXY ? "1" : "0") +
         " decision=" + std::string(compatibility_decision_name(decision)));
     if (decision != CompatibilityDecision::allowed) {

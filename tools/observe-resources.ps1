@@ -96,11 +96,15 @@ if ($Mode -eq 'Report') {
 if (-not $RuntimeDirectory) { $RuntimeDirectory = Join-Path $ReframeworkRoot 'reff\runtime' }
 $runtimePrefix = [IO.Path]::GetFullPath($RuntimeDirectory).TrimEnd('\') + '\'
 $gameRoot = Split-Path $ReframeworkRoot -Parent
-$gameEntry = Find-REFFGame $repoRoot $gameRoot @('verified', 'experimental')
-if (-not $gameEntry) { throw '无法从目标 reframework 目录识别已支持游戏。' }
-$gameFile = $gameEntry.executable
-$gameExecutable = $gameEntry.executablePath
-$gameProcessName = $gameEntry.processName
+$gameEntry = Find-REFFGame $repoRoot $gameRoot @('tested', 'untested')
+if ($gameEntry) {
+    $gameFiles=@($gameEntry.executable)
+} else {
+    # 未收录游戏同样可采样；仅比对游戏根目录中的 EXE 完整路径。
+    $gameFiles=@(Get-ChildItem -LiteralPath $gameRoot -File -Filter '*.exe' | Select-Object -ExpandProperty Name)
+}
+if (-not $gameFiles) { throw '游戏根目录没有可采样的 EXE。' }
+$gamePaths=@($gameFiles | ForEach-Object {[IO.Path]::GetFullPath((Join-Path $gameRoot $_))})
 $previous = @{}
 $runId = [Guid]::NewGuid().ToString()
 $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -114,7 +118,7 @@ while ($watch.Elapsed.TotalSeconds -lt $DurationSeconds) {
     $selected = @{}
     foreach ($candidate in $inventory) {
         $path = [string]$candidate.ExecutablePath
-        if ($path.Equals($gameExecutable, [StringComparison]::OrdinalIgnoreCase)) { $selected[[int]$candidate.ProcessId] = 'game' }
+        if ($gamePaths -contains $path) { $selected[[int]$candidate.ProcessId] = 'game' }
         elseif ($path -and $candidate.Name -eq 'reff-webview2-host.exe' -and
             $path.Equals(($runtimePrefix + $candidate.Name), [StringComparison]::OrdinalIgnoreCase)) { $selected[[int]$candidate.ProcessId] = 'reff' }
     }

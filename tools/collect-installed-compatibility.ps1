@@ -1,7 +1,7 @@
 ﻿param([Parameter(Mandatory=$true)][string]$ReframeworkRoot)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'package-files.ps1')
-# 普通包和实验包均可离线收集；仅输出白名单版本、数值与状态，不复制原始日志或输入文本。
+# 正式包可离线收集；仅输出白名单版本、数值与状态，不复制原始日志或输入文本。
 $target=[IO.Path]::GetFullPath($ReframeworkRoot).TrimEnd('\')
 if ((Split-Path $target -Leaf) -ne 'reframework') { throw '目标必须是游戏目录下的 reframework' }
 $null=Resolve-REFFFile $target 'reff/package.json'
@@ -14,7 +14,7 @@ function Assert-DiagnosticPath([string]$Path) {
     }
 }
 $metadata=Get-Content -LiteralPath (Resolve-REFFFile $target 'reff/package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-$report=[ordered]@{schemaVersion=2;backend='webview2';collectedUtc=[DateTime]::UtcNow.ToString('o');operatingSystem=[Environment]::OSVersion.Version.ToString();experimentalGames=[bool]$metadata.experimentalGames;gameValidated=$false}
+$report=[ordered]@{schemaVersion=2;backend='webview2';collectedUtc=[DateTime]::UtcNow.ToString('o');operatingSystem=[Environment]::OSVersion.Version.ToString();gameValidated=$false}
 if ([string]$metadata.version -match '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { $report.packageVersion=[string]$metadata.version }
 foreach ($pair in @(@('reffDllSha256','plugins/REFF.dll'),@('hostSha256','reff/runtime/reff-webview2-host.exe'))) {
     $file=Resolve-REFFFile $target $pair[1]
@@ -42,7 +42,7 @@ Assert-DiagnosticPath $log
 if ((Test-Path -LiteralPath $log -PathType Leaf) -and (Get-Item -LiteralPath $log).Length -le 1MB) {
     $text=[IO.File]::ReadAllText($log)
     $report.native=[ordered]@{initialized=$text.Contains('initialization=complete');hostStarted=$text.Contains('host process=started');handshake=$text.Contains('host handshake=ok');dx12=$text.Contains('renderer initialized=d3d12');rendererReset=$text.Contains('renderer reset')}
-    $matched=[regex]::Match($text,'target=([A-Z0-9_]{1,48}) status=(verified|experimental|disabled)')
+    $matched=[regex]::Match($text,'target=([A-Z0-9_]{1,48}) status=(tested|untested)')
     if ($matched.Success) { $report.native.target=$matched.Groups[1].Value;$report.native.status=$matched.Groups[2].Value }
 }
 $work=Join-Path $target ('data/REFF/diagnostics/REFF-'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))

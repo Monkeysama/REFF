@@ -20,7 +20,13 @@ foreach ($candidate in $catalog.games) {
     }
     if ($game) { break }
 }
-if (-not $game -or -not (Test-Path -LiteralPath (Join-Path $gameRoot 'dinput8.dll') -PathType Leaf)) { throw '未识别游戏或未安装 REFramework' }
+if (-not (Test-Path -LiteralPath (Join-Path $gameRoot 'dinput8.dll') -PathType Leaf)) { throw '未安装 REFramework' }
+# 通用档案只枚举游戏根目录 EXE 做退出检查，从不执行它们。
+if (-not $game) {
+    $executables=@(Get-ChildItem -LiteralPath $gameRoot -File -Filter '*.exe' | Select-Object -ExpandProperty Name)
+    if (-not $executables) { throw '游戏根目录未找到可执行文件' }
+    $game=[pscustomobject]@{target='GENERIC';status='untested';executables=$executables}
+}
 function Assert-GameExited {
     $names=@($game.executables | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_) })
     if (Get-Process -Name $names -ErrorAction SilentlyContinue) { throw '请先手动退出游戏，再安装或恢复 REFF' }
@@ -62,7 +68,6 @@ $source=[IO.Path]::GetFullPath($SourceRoot).TrimEnd('\')
 if ($source -eq $target -or $source.StartsWith($target+'\',[StringComparison]::OrdinalIgnoreCase)) { throw '先将包解压到临时目录，再运行安装器' }
 $package=Get-Content -LiteralPath (Resolve-REFFFile $source 'reff/package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($package.backend -ne 'webview2' -or $package.schemaVersion -ne 1) { throw '不是受支持的 WebView2 分发包' }
-if ($game.status -ne 'verified' -and -not ($game.status -eq 'experimental' -and $package.experimentalGames)) { throw '该游戏需要显式实验包' }
 $files=@(Read-REFFManifest (Resolve-REFFFile $source 'reff/package-manifest.json') $source -Verify)
 if ($files.path -contains 'reff/installed-manifest.json' -or $files.path -contains 'reff/package-manifest.json') { throw '分发清单不能包含安装状态或自身' }
 foreach ($required in @('plugins/REFF.dll','reff/runtime/reff-webview2-host.exe','reff/package.json','autorun/REFF.lua','reff/ui/index.html')) {

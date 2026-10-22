@@ -24,7 +24,7 @@ reframework/autorun/<plugin-id>.lua
   "localizedName": {"zh-CN": "示例插件", "en-US": "Example Plugin"},
   "author": "Plugin Author",
   "version": "1.0.0",
-  "reffApi": ">=0.1.0 <0.2.0",
+  "reffApi": ">=1.0.0 <2.0.0",
   "games": ["*"],
   "ui": {"kind": "page", "mode": "isolated-page", "entry": "ui/index.html"},
   "methods": ["author.example.get"],
@@ -65,7 +65,7 @@ Lua 方法运行在 REFramework 脚本环境。游戏对象、指针、类型和
 - React + TypeScript
 - 原生 HTML/JavaScript
 
-源码仓库中的开发说明位于 `web/examples-dev`；发布示例包的独立开发目录为 `reframework/reff/examples-dev`。该目录包含 SDK、公共源码和三个插件各自的依赖清单、锁文件及配置。进入其中一个插件目录，例如 `examples-dev/web/plugins/example.vue`：
+源码仓库中的开发说明位于 `web/examples-dev`；示例不再单独打包发布。源码位于 [`web/plugins/example.vue`](../web/plugins/example.vue)、[`web/plugins/example.react`](../web/plugins/example.react)、[`web/plugins/example.html`](../web/plugins/example.html)，后端位于 [`examples/lua/REFF.examples.lua`](../examples/lua/REFF.examples.lua)。克隆仓库后进入其中一个插件目录，例如 `web/plugins/example.vue`：
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -73,7 +73,7 @@ pnpm run typecheck
 pnpm run build
 ```
 
-回到 `examples-dev` 目录，明确指定同步目标：
+进入仓库的 `web/examples-dev` 目录，明确指定同步目标：
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File .\tools\build-and-sync.ps1 -PluginId example.vue -GameReframeworkRoot "<游戏目录>\reframework"
@@ -82,7 +82,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\tools\watch-and-sync.ps1 -PluginI
 
 源码修改后也可以运行 `watch-and-sync.ps1` 自动构建并同步 Web 资源；页面刷新通过受控的 `ui.reload` 开发接口完成。Lua 修改需要在游戏内执行 Reset Scripts。
 
-使用 WebView2 测试后端时，开发刷新默认关闭。需要启用时，在游戏的 `reframework/data/REFF/development.json` 中写入 `{"enabled":true}`，然后重新启动 REFF 宿主。同步脚本生成的 `.reff-dev-version` 只表示资源有更新，本身不会开启开发权限；删除开关文件并重启宿主即可关闭。该文件属于本地开发配置，不应放进插件或框架分发包。
+开发刷新默认关闭。需要启用时，在游戏的 `reframework/data/REFF/development.json` 中写入 `{"enabled":true}`，然后重新启动 REFF 宿主。同步脚本生成的 `.reff-dev-version` 只表示资源有更新，本身不会开启开发权限；删除开关文件并重启宿主即可关闭。该文件属于本地开发配置，不应放进插件或框架分发包。
 
 SDK 会自动选择 WebView2 原生传输。隔离插件的业务调用直接绑定当前 frame 与文档，输入法焦点仍由 Shell 换算坐标；使用 SDK 即可，无需自建父页面业务代理。WebView2 隔离页的刷新由 Shell 统一监视，避免同一次构建造成重复重载。
 

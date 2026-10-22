@@ -66,7 +66,7 @@ GPU 共享纹理是优化候选，不是首版先决条件。仅在 CPU 路径�
 
 运行状态至少区分 Hidden、Opening、Visible、Recovering、Unavailable。
 
-| 状态 | 输入行为 |
+| 运行阶段 | 输入行为 |
 | --- | --- |
 | Hidden / Unavailable | REFF 不捕获游戏输入 |
 | Opening | 页面未就绪前不长期占用输入；超时可关闭 |
@@ -130,13 +130,12 @@ tools/               构建、打包、部署脚本
 docs/                设计、验证记录和版本清单
 ```
 
-测试安装布局草案：
+安装布局：
 
 ```text
 reframework/
   plugins/REFF.dll
   autorun/REFF.lua
-  autorun/REFF.examples.lua      仅开发示例构建
   autorun/reff/                  Lua SDK 与桥接模块
   reff/ui/                       Shell 与公共前端资源
   reff/runtime/                  reff-webview2-host.exe，不含系统 Runtime
@@ -148,6 +147,6 @@ WebView2Loader 静态链接到宿主。用户数据目录为 `data/REFF/cache/we
 
 ## 9. 分发与升级
 
-默认 CMake 与 PowerShell 构建选择 WebView2，并启用 IME。普通包与实验包不含示例；独立示例包包含构建结果和开发源码。每个核心包包含文件哈希清单、许可证、依赖版本、离线安装器及最小诊断工具。归档检查直接读取 ZIP，核对目录结构、逐文件哈希、后端排他性和 ≤30 MiB 的未压缩体积预算。
+默认 CMake 与 PowerShell 构建选择 WebView2，并启用 IME。仅发布统一正式核心包；全部 REFramework 游戏默认允许启用，游戏测试状态不作为准入开关。示例只保留源码及构建说明，不再发布示例包。每个核心包包含文件哈希清单、许可证、依赖版本、离线安装器及最小诊断工具。归档检查直接读取 ZIP，核对目录结构、逐文件哈希、后端排他性和 ≤30 MiB 的未压缩体积预算。
 
 安装器先校验包与目标，确认游戏已退出，再备份所有覆盖/清理项和旧清单。只删除旧清单中归属明确且内容未变的过期核心文件，保留用户设置、第三方插件、独立示例和已修改旧文件。失败回滚已触碰项；显式恢复使用同一游戏备份。备份不计入 REFF 分发体积，真实升级目录可能仍占用旧引擎空间。

@@ -8,7 +8,7 @@ function Get-REFFGameCatalog([string]$RepositoryRoot) {
 }
 
 # 从游戏根目录识别目录中的可执行文件；返回值包含进程名，供部署前只读检查使用。
-function Find-REFFGame([string]$RepositoryRoot, [string]$GameRoot, [string[]]$AllowedStatuses = @('verified')) {
+function Find-REFFGame([string]$RepositoryRoot, [string]$GameRoot, [string[]]$AllowedStatuses = @('tested', 'untested')) {
     $catalog = Get-REFFGameCatalog $RepositoryRoot
     foreach ($game in $catalog.games) {
         if ([string]$game.status -notin $AllowedStatuses) { continue }
@@ -29,8 +29,7 @@ function Find-REFFGame([string]$RepositoryRoot, [string]$GameRoot, [string[]]$Al
     return $null
 }
 
-# 部署门控保持为无副作用函数，正式构建只能进入已验证目标，实验构建额外允许 experimental。
-function Test-REFFGameDeploymentAllowed([string]$Status, [bool]$ExperimentalGames) {
-    if ($Status -eq 'verified') { return $true }
-    return $Status -eq 'experimental' -and $ExperimentalGames
+# 测试状态只表达验证事实；正式安装对全部目录条目开放。
+function Test-REFFGameDeploymentAllowed([string]$Status) {
+    return $Status -in @('tested', 'untested')
 }

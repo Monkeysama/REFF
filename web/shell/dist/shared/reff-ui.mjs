@@ -22179,7 +22179,7 @@ function Gx() {
   };
   return window.addEventListener("message", e), window.parent !== window && window.parent.postMessage({ type: "reff:preferences-ready" }, "*"), () => window.removeEventListener("message", e);
 }
-const s5 = "0.1.0", l5 = { "zh-CN": Kx, "en-US": Ph }, Yx = [
+const s5 = "1.0.0", l5 = { "zh-CN": Kx, "en-US": Ph }, Yx = [
   MS,
   EO,
   Ks,

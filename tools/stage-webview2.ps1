@@ -14,7 +14,6 @@ $cache=Join-Path $BuildRoot 'CMakeCache.txt'
 foreach ($flag in @('REFF_ENABLE_WEBVIEW2','REFF_ENABLE_IME_PROXY')) {
     if (-not (Select-String -LiteralPath $cache -Pattern "^${flag}:BOOL=ON$" -Quiet)) { throw "分发构建缺少 $flag" }
 }
-$experimental=[bool](Select-String -LiteralPath $cache -Pattern '^REFF_ENABLE_EXPERIMENTAL_GAMES:BOOL=ON$' -Quiet)
 # 输出规范化到 staging 内；只重建 reframework 生成目录，不清空调用者的父目录。
 $stagingBase=[IO.Path]::GetFullPath((Join-Path $repoRoot 'staging')).TrimEnd('\')
 if ($StagingRoot -ne $stagingBase -and (Split-Path $StagingRoot -Parent) -ne $stagingBase) { throw 'StagingRoot 必须是仓库 staging 或其直属子目录' }
@@ -55,7 +54,7 @@ Copy-ReleaseFile (Join-Path $repoRoot 'config/game-support.json') 'reff/tools/ga
 Copy-ReleaseFile (Join-Path $repoRoot 'README.md') 'reff/compatibility/README.zh-CN.md'
 Copy-ReleaseFile (Join-Path $repoRoot 'docs/compatibility.zh-CN.md') 'reff/compatibility/games.zh-CN.md'
 $version=(Get-Content -LiteralPath (Join-Path $repoRoot 'version.json') -Raw | ConvertFrom-Json).version
-[ordered]@{schemaVersion=1;backend='webview2';version=$version;experimentalGames=$experimental;minimumWindowsBuild=19045;minimumRuntime='155.0.4283.62';runtimeDistribution='Evergreen shared stable';runtimeIncluded=$false;runtimeDownload='https://developer.microsoft.com/microsoft-edge/webview2/';manualGameValidation='pending';createdUtc=[DateTime]::UtcNow.ToString('o')} |
+[ordered]@{schemaVersion=1;backend='webview2';version=$version;supportScope='all-reframework-games';minimumWindowsBuild=19045;minimumRuntime='155.0.4283.62';runtimeDistribution='Evergreen shared stable';runtimeIncluded=$false;runtimeDownload='https://developer.microsoft.com/microsoft-edge/webview2/';manualGameValidation='pending';createdUtc=[DateTime]::UtcNow.ToString('o')} |
     ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $stageRoot 'reff/package.json') -Encoding utf8
 if ($IncludeExamples) {
     Copy-ReleaseFile (Join-Path $repoRoot 'examples/lua/REFF.examples.lua') 'autorun/REFF.examples.lua'
@@ -68,6 +67,6 @@ $null=Write-REFFManifest $stageRoot (Join-Path $stageRoot 'reff/package-manifest
 $manifest=Write-REFFManifest $stageRoot (Join-Path $StagingRoot 'manifest.json')
 $bytes=($manifest | Measure-Object bytes -Sum).Sum
 if ($bytes -gt 30MB -or (1-$bytes/(402MB)) -lt .9) { throw "包体积超标：$bytes bytes" }
-[pscustomobject]@{schemaVersion=1;backend='webview2';experimentalGames=$experimental;buildRoot=[IO.Path]::GetFullPath($BuildRoot);bytes=$bytes;baselineBytes=402MB;reduction=1-$bytes/(402MB)} |
+[pscustomobject]@{schemaVersion=1;backend='webview2';supportScope='all-reframework-games';buildRoot=[IO.Path]::GetFullPath($BuildRoot);bytes=$bytes;baselineBytes=402MB;reduction=1-$bytes/(402MB)} |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $StagingRoot 'build-profile.json') -Encoding utf8
 Write-Output "WebView2 staging：$stageRoot，$($manifest.Count) 文件，$bytes bytes；不含共享 Runtime、缓存和旧版备份。"

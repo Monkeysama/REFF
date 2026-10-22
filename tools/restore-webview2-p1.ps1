@@ -6,9 +6,11 @@ $repoRoot=Split-Path -Parent $PSScriptRoot
 $backup=[IO.Path]::GetFullPath($BackupDirectory)
 $info=Get-Content -LiteralPath (Join-Path $backup 'restore-info.json') -Raw | ConvertFrom-Json
 $target=[IO.Path]::GetFullPath($info.targetRoot).TrimEnd('\')
-$game=Find-REFFGame $repoRoot (Split-Path $target -Parent) @('verified')
-if(-not $game -or (Split-Path $target -Leaf) -ne 'reframework'){throw '备份目标不是已验证游戏'}
-if(Get-Process -Name $game.processName -ErrorAction SilentlyContinue){throw '请手动退出游戏后恢复'}
+$game=Find-REFFGame $repoRoot (Split-Path $target -Parent) @('tested', 'untested')
+if((Split-Path $target -Leaf) -ne 'reframework'){throw '备份目标必须是 reframework 目录'}
+$processNames=if($game){@($game.processName)}else{@(Get-ChildItem -LiteralPath (Split-Path $target -Parent) -File -Filter '*.exe' | ForEach-Object {[IO.Path]::GetFileNameWithoutExtension($_.Name)})}
+if(-not $processNames){throw '游戏根目录没有可用于退出检查的 EXE'}
+if(Get-Process -Name $processNames -ErrorAction SilentlyContinue){throw '请手动退出游戏后恢复'}
 
 # 只恢复经过白名单及完整性预检的单文件；新增项逐文件删除，不递归清理目录。
 foreach($file in $info.files){

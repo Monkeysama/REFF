@@ -1,15 +1,15 @@
-# REFF 示例插件开发包
+# REFF 示例插件源码
 
-本目录包含 Vue 3、React 和原生 HTML/JavaScript 三个示例插件的源码与构建配置。它不包含 `node_modules`，请使用 Node.js 24.x 和 pnpm 11.x 安装锁定版本的依赖。
+三个示例源码位于仓库的 `web/plugins/example.vue`、`web/plugins/example.react` 和 `web/plugins/example.html`。本目录提供构建、同步和监视工具，示例不再随 Release 发布。它不包含 `node_modules`，请使用 Node.js 24.x 和 pnpm 11.x 安装锁定版本的依赖。
 
-在本目录根部执行以下命令安装锁定的 Web 依赖并检查类型：
+在仓库根目录执行以下命令安装锁定的 Web 依赖并检查类型：
 
 ```powershell
-pnpm run install:deps
-pnpm run typecheck
+pnpm --dir web/shell install --frozen-lockfile
+.\tools\build-web.ps1 -IncludeExamples
 ```
 
-根目录的 `package.json` 提供统一命令入口；具体版本依赖和 `pnpm-lock.yaml` 位于 `web/shell`，安装脚本会使用该锁文件并将依赖放在 `web/shell/node_modules`，与示例 Vite 配置的路径保持一致。
+以下 pnpm 命令在 `web/examples-dev` 执行；三个插件也可各自在源码目录安装依赖并构建。
 
 ## 构建并同步到游戏
 
@@ -36,6 +36,6 @@ pnpm run watch:vue -GameReframeworkRoot "<游戏目录>\reframework"
 
 ## 单独开发一个示例
 
-每个 `web/plugins/example.vue`、`example.react`、`example.html` 目录均带有自己的 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml`、`tsconfig.json` 和 Vite 配置。可只在选定目录运行 `pnpm install --frozen-lockfile`、`pnpm run typecheck`、`pnpm run build`，无需先安装 Shell 的依赖。保留开发包中的 `web/sdk` 与 `web/shared/src` 相对位置，SDK 和公共组件源码供类型检查与构建使用。三个示例仍需相同版本的 REFF Runtime 提供游戏内服务。
+每个 `web/plugins/example.vue`、`example.react`、`example.html` 目录均带有自己的 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml`、`tsconfig.json` 和 Vite 配置。可只在选定目录运行 `pnpm install --frozen-lockfile`、`pnpm run typecheck`、`pnpm run build`，无需先安装 Shell 的依赖。保留源码仓库中的 `web/sdk` 与 `web/shared/src` 相对位置，SDK 和公共组件源码供类型检查与构建使用。三个示例仍需相同版本的 REFF Runtime 提供游戏内服务。
 
 同步和监视命令需要显式目标，例如 `pnpm run sync -GameReframeworkRoot 'C:\Steam\steamapps\common\MonsterHunterWilds\reframework'`；命令只同步当前插件，不启动或操作游戏。WebView2 自动刷新默认关闭，先手动建立 `reframework/data/REFF/development.json`，内容为 `{"enabled":true}`，并重新打开 REFF 宿主；Shell 统一检测开发标记，每次构建只刷新当前插件一次。不启用开发模式时可手动重新打开页面。

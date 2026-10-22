@@ -6,10 +6,10 @@ if (-not $SourceRoot) { $SourceRoot=Join-Path $repoRoot 'staging/reframework' }
 $fixture=Join-Path $repoRoot ('artifacts/webview2-p4/install-'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 New-Item -ItemType Directory -Path $fixture -Force | Out-Null
 # 伪游戏仅有普通文本文件，从不运行 EXE；安装器仍使用正式目录识别、进程与哈希校验。
-function New-InstallFixture([string]$Name) {
+function New-InstallFixture([string]$Name,[string]$Executable='re4.exe') {
     $root=Join-Path $fixture $Name
     New-Item -ItemType Directory -Path (Join-Path $root 'reframework/reff') -Force | Out-Null
-    'fixture only' | Set-Content -LiteralPath (Join-Path $root 're4.exe')
+    'fixture only' | Set-Content -LiteralPath (Join-Path $root $Executable)
     'fixture only' | Set-Content -LiteralPath (Join-Path $root 'dinput8.dll')
     return (Join-Path $root 'reframework')
 }
@@ -42,6 +42,15 @@ $null=Read-REFFManifest (Join-Path $clean 'reff/installed-manifest.json') $clean
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -ReframeworkRoot $clean -RestoreBackup $result.backup | Out-Null
 if ($LASTEXITCODE -ne 0) { throw '随包恢复 -File 入口失败' }
 Assert-SameFiles $before (Get-FixtureFiles $clean)
+# 已知但未测试游戏与目录外新目标均能安装、恢复；夹具 EXE 是文本且从不运行。
+foreach ($exe in @('DevilMayCry5.exe','FutureREGame.exe')) {
+    $generic=New-InstallFixture ('all-games-'+$exe) $exe
+    $genericBefore=Get-FixtureFiles $generic
+    $genericResult=& $installer -ReframeworkRoot $generic -SourceRoot $SourceRoot | ConvertFrom-Json
+    $null=Read-REFFManifest (Join-Path $generic 'reff/installed-manifest.json') $generic -Verify
+    & $installer -ReframeworkRoot $generic -RestoreBackup $genericResult.backup | Out-Null
+    Assert-SameFiles $genericBefore (Get-FixtureFiles $generic)
+}
 $upgrade=New-InstallFixture 'cef-upgrade'
 foreach ($pair in @(
     @('plugins/REFF.dll','old-dll'),@('autorun/REFF.lua','old-lua'),@('reff/runtime/libcef.dll','cef'),
@@ -101,12 +110,12 @@ Assert-Fixture $rejected 'junction 未拒绝'
 $diagnostic=New-InstallFixture 'diagnostic'
 $null=& $installer -ReframeworkRoot $diagnostic -SourceRoot $SourceRoot
 Put-FixtureFile $diagnostic 'data/REFF/log/webview2/summary.json' '{"runtime":"155.0.4283.62","osBuild":26300,"publishedFrames":17,"error":"secret-input-sentinel","clipboard":"secret-input-sentinel"}'
-Put-FixtureFile $diagnostic 'data/REFF/log/compatibility.log' 'target=RE4 status=verified initialization=complete secret-input-sentinel'
+Put-FixtureFile $diagnostic 'data/REFF/log/compatibility.log' 'target=RE4 status=untested initialization=complete secret-input-sentinel'
 & (Join-Path $SourceRoot 'reff/tools/collect-installed-compatibility.ps1') -ReframeworkRoot $diagnostic | Out-Null
 $diagnosticReport=Get-ChildItem -LiteralPath (Join-Path $diagnostic 'data/REFF/diagnostics') -Filter report.json -Recurse -File | Select-Object -First 1
 $safeText=[IO.File]::ReadAllText($diagnosticReport.FullName)
 Assert-Fixture (-not $safeText.Contains('secret-input-sentinel')) '诊断泄漏输入内容'
 $safeReport=$safeText | ConvertFrom-Json
 Assert-Fixture ($safeReport.host.runtime -eq '155.0.4283.62' -and $safeReport.host.publishedFrames -eq 17 -and $safeReport.native.target -eq 'RE4') '诊断未收集规定字段'
-[ordered]@{passed=$true;cleanInstall=$true;powershell51FileEntry=$true;cefUpgrade=$true;restoreHashes=$true;preserveSettingsAndThirdParty=$true;preserveModified=$true;preserveChangedOrMissingExamples=$true;rollback=$true;pathAndJunctionRejected=$true;diagnosticsAllowlist=$true;gameValidated=$false;fixture=$fixture} |
+[ordered]@{passed=$true;allGameInstall=$true;genericTargetInstall=$true;cleanInstall=$true;powershell51FileEntry=$true;cefUpgrade=$true;restoreHashes=$true;preserveSettingsAndThirdParty=$true;preserveModified=$true;preserveChangedOrMissingExamples=$true;rollback=$true;pathAndJunctionRejected=$true;diagnosticsAllowlist=$true;gameValidated=$false;fixture=$fixture} |
     ConvertTo-Json | Tee-Object -FilePath (Join-Path $fixture 'summary.json')

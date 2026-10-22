@@ -85,7 +85,7 @@ export {
   ElTooltip,
 } from 'element-plus';
 
-export const REFF_UI_VERSION = '0.1.0';
+export const REFF_UI_VERSION = '1.0.0';
 export const REFF_ELEMENT_LOCALES = { 'zh-CN': zhCn, 'en-US': en } as const;
 
 const publicComponents: Plugin[] = [

@@ -4,46 +4,17 @@ $repoRoot=Split-Path -Parent $PSScriptRoot
 if (-not $BuildRoot) { $BuildRoot=Join-Path $repoRoot 'build-webview2-release' }
 $fixture=Join-Path $repoRoot ('artifacts/webview2-p4/release-contract-'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 New-Item -ItemType Directory -Path $fixture -Force | Out-Null
-# 只测试发布判断函数，不调用 gh。合成通过记录位于独立夹具，不能充当真实游戏验收。
-$gate=Join-Path $PSScriptRoot 'verify-game-validation.ps1'
+# 仅验证本地发布契约，不调用 gh 或游戏；错误标签必须在构建或写文件前拒绝。
 function Assert-Rejected([scriptblock]$Action,[string]$Reason) {
     $rejected=$false;try { & $Action | Out-Null } catch { $rejected=$true }
     if (-not $rejected) { throw "发布契约未拒绝：$Reason" }
 }
-$checks=@();foreach ($required in @(@('MHWILDS','P2'),@('MHWILDS','P3'),@('MHRISE','P3'),@('RE4','P3'))) {
-    $checks+=@{game=$required[0];scope=$required[1];status='passed';evidence='synthetic-fixture-only'}
+$release=Join-Path $PSScriptRoot 'release.ps1'
+$version=[string](Get-Content -LiteralPath (Join-Path $repoRoot 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
+$nextMajor=([int]$version.Split('.')[0])+1
+foreach ($tag in @("v$version-preview1","v$version-rc.1","v$nextMajor.0.0",$version,"v0$version","v$version/../../outside")) {
+    Assert-Rejected { & $release -Tag $tag -SkipBuild } "invalid stable tag $tag"
 }
-$validation=@{schemaVersion=1;backend='webview2';dllSha256=(Get-FileHash -LiteralPath (Join-Path $BuildRoot 'Release/REFF.dll')).Hash;hostSha256=(Get-FileHash -LiteralPath (Join-Path $BuildRoot 'Release/reff-webview2-host.exe')).Hash;checks=$checks}
-$file=Join-Path $fixture 'synthetic-validation.json'
-# 失败用例独立构造，不依赖真实验收配置始终处于 pending。
-$checks[0].status='pending'
-$validation | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $file -Encoding UTF8
-Assert-Rejected { & $gate -ValidationFile $file -BuildRoot $BuildRoot } 'pending manual acceptance'
-$checks[0].status='passed'
-$validation | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $file -Encoding UTF8
-& $gate -ValidationFile $file -BuildRoot $BuildRoot | Out-Null
-$validation.hostSha256=('0'*64)
-$validation | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $file -Encoding UTF8
-Assert-Rejected { & $gate -ValidationFile $file -BuildRoot $BuildRoot } 'different native build'
-# 每个拒绝分支仅破坏自身条件，避免上一用例的错误哈希掩盖缺失游戏记录。
-$validation.hostSha256=(Get-FileHash -LiteralPath (Join-Path $BuildRoot 'Release/reff-webview2-host.exe')).Hash
-$validation.checks=$checks[0..2]
-$validation | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $file -Encoding UTF8
-Assert-Rejected { & $gate -ValidationFile $file -BuildRoot $BuildRoot } 'missing game'
-$validation.checks=$checks
-$checks[3].status='deferred'
-$validation | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $file -Encoding UTF8
-Assert-Rejected { & $gate -ValidationFile $file -BuildRoot $BuildRoot } 'unapproved deferral'
-$validation.scopeAdjustment=@{approvedBy='user';reason='synthetic fixture only';evidence='synthetic-fixture-only'}
-$validation | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $file -Encoding UTF8
-& $gate -ValidationFile $file -BuildRoot $BuildRoot | Out-Null
-$validation.scopeAdjustment.reason=''
-$validation | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $file -Encoding UTF8
-Assert-Rejected { & $gate -ValidationFile $file -BuildRoot $BuildRoot } 'missing deferral reason'
-$validation.scopeAdjustment.reason='synthetic fixture only'
-$checks[2].status='deferred'
-$validation | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $file -Encoding UTF8
-Assert-Rejected { & $gate -ValidationFile $file -BuildRoot $BuildRoot } 'core game deferral'
 if ($Archive) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     & (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($Archive) | Out-Null
@@ -66,5 +37,5 @@ if ($Archive) {
         Assert-Rejected { & (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($badZip) } 'unsafe zip path'
     }
 }
-@{passed=$true;pendingRejected=$true;nativeHashBinding=$true;missingGameRejected=$true;explicitRe4DeferralPassed=$true;unapprovedDeferralRejected=$true;coreGameDeferralRejected=$true;archiveChecked=[bool]$Archive;gameValidated=$false} |
+@{passed=$true;stableTagContract=$true;archiveChecked=[bool]$Archive;gameValidated=$false} |
     ConvertTo-Json | Tee-Object -FilePath (Join-Path $fixture 'summary.json')

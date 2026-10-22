@@ -16,7 +16,7 @@ $targetPluginRoot = Join-Path $targetRoot "reff\plugins\$PluginId"
 
 if (-not (Test-Path -LiteralPath $pluginRoot -PathType Container)) { throw "示例插件目录不存在：$pluginRoot" }
 if (-not (Test-Path -LiteralPath (Join-Path $pluginRoot 'vite.config.ts') -PathType Leaf)) { throw "缺少 Vite 配置：$pluginRoot\vite.config.ts" }
-if (-not (Test-Path -LiteralPath $shellRoot -PathType Container)) { throw "缺少 Web 依赖目录：$shellRoot" }
+if (-not (Test-Path -LiteralPath (Join-Path $buildRoot 'node_modules/.bin/vite.cmd') -PathType Leaf)) { throw '请先在当前插件或 web/shell 安装锁定依赖' }
 if (-not (Test-Path -LiteralPath $targetRoot -PathType Container)) { throw "游戏 REFramework 目录不存在：$targetRoot" }
 
 $pnpm = Get-Command pnpm -ErrorAction SilentlyContinue

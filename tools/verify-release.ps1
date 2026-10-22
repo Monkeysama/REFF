@@ -1,7 +1,7 @@
 ﻿param([Parameter(Mandatory=$true)][string[]]$Archives)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-# 检查归档本身，不以 staging 清单代替分发证据；增量示例严格排除核心文件。
+# 检查归档本身，不以 staging 清单代替分发证据；正式包严格排除示例和旧引擎。
 foreach ($archive in $Archives) {
     $zip=[IO.Compression.ZipFile]::OpenRead([IO.Path]::GetFullPath($archive))
     try {
@@ -14,20 +14,8 @@ foreach ($archive in $Archives) {
             if ($files.ContainsKey($name)) { throw '归档重复文件' }
             $files[$name]=$entry;$total+=$entry.Length
         }
-        $examples=$archive -match '-examples\.zip$'
-        if ($examples) {
-            foreach ($name in $files.Keys) {
-                if ($name -notmatch '^reframework/(autorun/REFF\.examples\.lua$|reff/(plugins/example\.(vue|react|html)/|examples-dev/))') { throw "示例包混入核心文件：$name" }
-            }
-            foreach ($id in @('vue','react','html')) {
-                foreach ($suffix in @('manifest.json','ui/dist/index.html')) {
-                    if (-not $files.ContainsKey("reframework/reff/plugins/example.$id/$suffix")) { throw '示例缺少构建产物' }
-                }
-                foreach ($suffix in @('package.json','pnpm-lock.yaml','vite.config.ts','tsconfig.json')) {
-                    if (-not $files.ContainsKey("reframework/reff/examples-dev/web/plugins/example.$id/$suffix")) { throw "示例缺少独立开发配置：$id/$suffix" }
-                }
-            }
-        } else {
+        if ([IO.Path]::GetFileName($archive) -match '-(examples|experimental)\.zip$') { throw '不再发布示例包或实验包' }
+        & {
             foreach ($name in $files.Keys) {
                 if ($name -match '^reframework/(autorun/REFF\.examples\.lua|reff/(plugins/|examples-dev/))' -or
                     ($name -match '^reframework/reff/runtime/' -and $name -ne 'reframework/reff/runtime/reff-webview2-host.exe')) { throw "Runtime 包混入旧后端或示例：$name" }
@@ -41,9 +29,11 @@ foreach ($archive in $Archives) {
                 try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
             }
             $package=Read-ZipText 'reff/package.json' | ConvertFrom-Json
+            $expectedVersion=(Get-Content -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
+            $uiVersion=Read-ZipText 'reff/ui/version.json' | ConvertFrom-Json
+            if ($package.version -ne $expectedVersion -or $uiVersion.version -ne $expectedVersion) { throw '分发版本与版本源不符' }
             if ($package.backend -ne 'webview2' -or $package.runtimeIncluded) { throw '后端或共享 Runtime 元数据不正确' }
-            $experimental=$archive -match '-experimental\.zip$'
-            if ([bool]$package.experimentalGames -ne $experimental) { throw '实验标志与归档名不符' }
+            if ($package.supportScope -ne 'all-reframework-games' -or $package.version -notmatch '^\d+\.\d+\.\d+$') { throw '正式版本或支持范围元数据不正确' }
             $manifest=Read-ZipText 'reff/package-manifest.json' | ConvertFrom-Json
             $listed=@{}
             foreach ($item in $manifest) {
@@ -57,6 +47,6 @@ foreach ($archive in $Archives) {
             }
             if ($files.Count -ne $listed.Count+1) { throw '归档存在未列入清单的文件' }
         }
-        [pscustomobject]@{archive=[IO.Path]::GetFullPath($archive);files=$files.Count;uncompressedBytes=$total;examples=$examples;passed=$true}
+        [pscustomobject]@{archive=[IO.Path]::GetFullPath($archive);files=$files.Count;uncompressedBytes=$total;passed=$true}
     } finally { $zip.Dispose() }
 }
