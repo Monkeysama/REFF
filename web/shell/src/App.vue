@@ -7,7 +7,7 @@ import SchemaPanel, { type SchemaDefinition, type SchemaField } from './componen
 import SettingsPanel from './features/settings/SettingsPanel.vue';
 import type { ReffSettings, SettingsPatch } from './features/settings/types';
 import { translate } from './locales';
-import { Fold, Expand, Setting, ArrowUp, ArrowDown } from '@element-plus/icons-vue';
+import { Fold, Expand, Setting, ArrowUp, ArrowDown, ArrowRight } from '@element-plus/icons-vue';
 
 type PluginSummary = {
   id: string;
@@ -466,7 +466,7 @@ onBeforeUnmount(async () => {
   <el-container class="reff-shell" :class="{ 'sidebar-collapsed': settings.layout.sidebarCollapsed, 'header-collapsed': settings.layout.headerCollapsed, 'sidebar-shown': sidebarShown, 'header-shown': headerShown }">
     <a class="skip-link" href="#workspace-content">{{ t('skipContent') }}</a>
     <div class="sidebar-chrome" @mouseenter="sidebarHovered = true" @mouseleave="sidebarHovered = false" @focusin="chromeFocus($event, 'sidebar')" @focusout="chromeFocus($event, 'sidebar')">
-    <div v-if="settings.layout.sidebarCollapsed" class="sidebar-edge" @mouseenter="sidebarHovered = true"><button class="edge-hint sidebar-hint" type="button" :aria-label="t('revealSidebar')" :aria-expanded="sidebarShown" @focus="focusChrome($event, 'sidebar')" @click="sidebarHovered = true"><span class="chrome-icon"><Expand /></span></button></div>
+    <div v-if="settings.layout.sidebarCollapsed" class="sidebar-edge" @mouseenter="sidebarHovered = true"><button class="edge-hint sidebar-hint" type="button" :aria-label="t('revealSidebar')" :aria-expanded="sidebarShown" @focus="focusChrome($event, 'sidebar')" @click="sidebarHovered = true"><span class="chrome-icon"><ArrowRight /></span></button></div>
     <el-aside width="208px" class="navigation" :inert="!sidebarShown">
       <div class="brand"><strong class="brand-name">RE<span>FF</span></strong><small>v{{ reffVersion }}</small><button class="chrome-button nav-pin" type="button" :aria-label="t(settings.layout.sidebarCollapsed ? 'expandSidebar' : 'collapseSidebar')" :aria-pressed="!settings.layout.sidebarCollapsed" @click="updateSettings({ layout: { sidebarCollapsed: !settings.layout.sidebarCollapsed } })"><span class="chrome-icon"><Fold /></span></button></div>
       <nav :aria-label="t('plugins')">
