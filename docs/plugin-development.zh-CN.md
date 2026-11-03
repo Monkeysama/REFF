@@ -227,6 +227,24 @@ window.addEventListener('pagehide', () => {
 
 接入后，在游戏内手动切换主题和自定义颜色、将字号调到 0.8 与 1.4、切换语言并调整透明度和圆角，确认插件当前页立即变化、文本不截断，关闭重开后仍跟随 REFF 保存的偏好。桥接与令牌定义分别见 [preferences.ts](../web/shared/src/preferences.ts) 和 [theme.css](../web/shared/src/theme.css)。
 
+## 调整当前插件的容器留白
+
+需要让图表铺满容器，或为当前页面留出更多呼吸空间时，可以在 REFF 设置的「工作区 → 留白应用于」选择该插件，也可以由隔离插件页面调用：
+
+```ts
+import type { ReffPluginLayout } from '@reff-sdk/types';
+
+// reff 是使用 createEmbeddedTransport() 创建的当前插件客户端。
+const layout = await reff.call<ReffPluginLayout>('ui.layout.get');
+await reff.call<ReffPluginLayout>('ui.layout.set', { padding: 0 }); // 贴边
+await reff.call<ReffPluginLayout>('ui.layout.set', { padding: 24 });
+await reff.call<ReffPluginLayout>('ui.layout.set', { padding: null }); // 恢复跟随全局
+```
+
+返回值为 `{ padding, override, defaultPadding }`：`padding` 是当前有效像素值，`override` 为该插件覆盖值或 `null`，`defaultPadding` 为全局值。全局默认 **24 px**，已有显式配置保持不变；覆盖值接受 **0–48 的整数**，并保存到 Core 设置，重启和 Reset Scripts 后仍生效。
+
+这两个方法不需要加入 manifest 的业务方法列表。目标插件由宿主绑定的实际文档身份确定，参数中不能指定 `pluginId`，也不能修改其他插件或全局留白。Schema 页面使用设置页配置逐插件留白。插件内部的 CSS padding 仍由插件自己管理；此接口调整的是 Shell 包围插件页面的外部留白。
+
 ## 生命周期与安全边界
 
 - 页面可能因 Reset Scripts、宿主重启、设备重建或游戏退出而销毁并重建。

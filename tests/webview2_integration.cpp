@@ -152,6 +152,16 @@ int wmain(int argc,wchar_t** argv){
                             throw std::runtime_error(lua_tostring(state,-1));
                         channel.send({{"type","response"},{"id",invalidated_request},{"epoch",1},{"result",{{"stale",true}}}});
                         channel.send({{"type","ready"},{"ready",true},{"epoch",epoch}});
+                    }else if(method=="ui.layout.get"||method=="ui.layout.set"){
+                        Json response={{"type","response"},{"id",(*message)["id"]},{"epoch",epoch}};
+                        const auto id=message->at("pluginId").get<std::string>();bool ok=true;
+                        if(method=="ui.layout.set"){
+                            ok=settings.set_plugin_padding(id,(*message)["params"]["padding"],settings_error)&&settings.save(settings_error);
+                            if(ok)channel.send({{"type","settings_changed"}});
+                        }
+                        if(ok)response["result"]=settings.plugin_layout(id);
+                        else response["error"]={{"code","INVALID_ARGUMENT"},{"message",settings_error}};
+                        channel.send(std::move(response));
                     }else if(method.starts_with("reff.settings.")){
                         Json response={{"type","response"},{"id",(*message)["id"]},{"epoch",epoch}};
                         bool ok=true;

@@ -25,6 +25,8 @@ public:
     void open(std::filesystem::path path, std::string& warning);
     Json snapshot() const;
     bool update(const Json& patch, std::string& error);
+    Json plugin_layout(const std::string& plugin_id) const;
+    bool set_plugin_padding(const std::string& plugin_id, const Json& padding, std::string& error);
     void reset();
 
     bool remember_geometry() const;

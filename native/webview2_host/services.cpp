@@ -145,6 +145,17 @@ void HostServices::query(const std::string& raw,std::shared_ptr<Reply> callback)
         // 内置设置页由 Shell 承载，Core 方法可在 Lua 未就绪时使用；第三方插件页不能取得该特权。
         const bool core_settings = page_.plugin_id.empty() &&
             (method == "reff.settings.get" || method == "reff.settings.set" || method == "reff.settings.reset" || method == "reff.settings.hotkey.capture");
+        // 布局接口仅绑定当前插件；页面不能声明目标 ID，也不需要增加 Lua manifest 权限。
+        const bool plugin_layout = method == "ui.layout.get" || method == "ui.layout.set";
+        if (plugin_layout) {
+            if (page_.plugin_id.empty()) { callback->Failure(403, "FORBIDDEN"); return; }
+            const auto& args = value["params"];
+            if ((method == "ui.layout.get" && !args.empty()) || (method == "ui.layout.set" &&
+                (args.size() != 1 || !args.contains("padding") || (!args["padding"].is_null() &&
+                (!args["padding"].is_number_integer() || args["padding"].get<double>() < 0 || args["padding"].get<double>() > 48))))) {
+                callback->Failure(400, "INVALID_ARGUMENT"); return;
+            }
+        }
         if (self_test_ && method == "test.finished") {
             value["params"]["documentGeneration"] = document_generation_;
             value["params"]["subscriptions"] = subscriptions_.size();
@@ -153,7 +164,7 @@ void HostServices::query(const std::string& raw,std::shared_ptr<Reply> callback)
             send({{"type", "test_result"}, {"result", value.at("params")}});
             callback->Success("{}"); return;
         }
-        if (closed_ || (!ready_ && !core_settings)) { callback->Failure(503, closed_ ? "HOST_CLOSED" : "NOT_READY"); return; }
+        if (closed_ || (!ready_ && !core_settings && !plugin_layout)) { callback->Failure(503, closed_ ? "HOST_CLOSED" : "NOT_READY"); return; }
         value["id"] = frame_+":"+std::to_string(++query_sequence_);
         if (!valid_request(value)) { callback->Failure(400, "INVALID_ARGUMENT"); return; }
         Pending pending{callback, std::chrono::steady_clock::now() + std::chrono::seconds(5)};
@@ -194,7 +205,7 @@ void HostServices::query(const std::string& raw,std::shared_ptr<Reply> callback)
             }
             pending.native_subscription_id=subscriptions_.at(pending.subscription_id).native_id;
             value["params"]["subscriptionId"]=pending.native_subscription_id;
-        } else if (!page_.plugin_id.empty()) {
+        } else if (!page_.plugin_id.empty() && !plugin_layout) {
             if (std::find(route->manifest->methods.begin(), route->manifest->methods.end(), method) == route->manifest->methods.end() ||
                 !method.starts_with(page_.plugin_id + ".")) {
                 callback->Failure(403, "FORBIDDEN"); return;
@@ -240,6 +251,10 @@ void HostServices::fail_pending(const std::string& reason) {
 // IPC epoch 与宿主页面身份共同过滤响应和事件；脚本重置不重放写操作。
 bool HostServices::dispatch(const Json& message){
     auto type = message.value("type", std::string{});
+    if (type == "settings_changed") {
+        if (page_.plugin_id.empty() && emit) emit("settings-changed", Json::object());
+        return true;
+    }
     if (type == "ready") {
         auto epoch = message.at("epoch").get<std::uint64_t>();
         if (epoch != epoch_) {fail_pending("SCRIPT_RESET");subscriptions_.clear();subscription_cleanup_.clear();}

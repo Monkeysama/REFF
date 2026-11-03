@@ -42,6 +42,13 @@ int wmain(int argc,wchar_t** argv){try{
         require(!a.resource_path(url),"unsafe resource accepted");
     require(a.navigate("reff://example.vue.plugin/ui/dist/index.html","f1"),"plugin navigation rejected");
     require(b.navigate("reff://example.vue.plugin/ui/dist/index.html","f2"),"second frame rejected");
+    require(call(a,"ui.layout.set",{{"padding",12},{"pluginId","example.react"}})->code==400,"plugin supplied layout target");
+    for(const auto padding:{Json(-1),Json(49),Json(1.5),Json("12")})
+        require(call(a,"ui.layout.set",{{"padding",padding}})->code==400,"invalid plugin padding accepted");
+    auto layout=call(a,"ui.layout.set",{{"padding",0}});const auto layout_req=sent.back();
+    require(layout->code==-1 && layout_req["pluginId"]=="example.vue" && layout_req["method"]=="ui.layout.set","layout identity not bound");
+    a.dispatch({{"type","response"},{"id",layout_req["id"]},{"epoch",1},{"result",{{"padding",0}}}});
+    require(layout->code==0,"layout response failed");
     require(call(a,"ui.window.regions")->code==403,"plugin acquired window drag privileges");
     require(call(a,"ui.plugins")->code==403,"plugin acquired Shell privileges");
     require(call(a,"reff.settings.get")->code==403,"plugin read core settings");

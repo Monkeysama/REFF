@@ -46,7 +46,7 @@ Json SettingsStore::defaults() {
     appearance["textScale"] = 1.0;
     return {{"schemaVersion", 1}, {"language", "zh-CN"}, {"hotkey", {{"key", VK_F8}, {"modifiers", 0}}}, {"appearance", appearance},
             {"startup", {{"preload", true}}},
-            {"layout", {{"sidebarCollapsed", true}, {"headerCollapsed", true}, {"pluginPadding", 12}}},
+            {"layout", {{"sidebarCollapsed", true}, {"headerCollapsed", true}, {"pluginPadding", 24}, {"pluginPaddingOverrides", Json::object()}}},
             {"navigation", {{"rememberLastPlugin", true}, {"lastPluginId", "reff.settings"}}},
             {"input", {{"mousePassthrough", false}, {"keyboardPassthrough", false}}},
             {"window", {{"rememberGeometry", true}}}};
@@ -75,11 +75,21 @@ bool SettingsStore::validate_document(Json& value, std::string& error) {
     }
     // 新布局分组在旧配置中补默认值，保持已有主题、输入和窗口记录不变。
     for (const auto* group : {"layout", "navigation"}) if (!value.contains(group)) value[group] = defaults()[group];
-    const auto& layout = value["layout"];
-    if (!known_keys(layout, {"sidebarCollapsed", "headerCollapsed", "pluginPadding"}) ||
+    auto& layout = value["layout"];
+    if (!layout.contains("pluginPaddingOverrides")) layout["pluginPaddingOverrides"] = Json::object();
+    if (!known_keys(layout, {"sidebarCollapsed", "headerCollapsed", "pluginPadding", "pluginPaddingOverrides"}) ||
         !layout.value("sidebarCollapsed", Json()).is_boolean() || !layout.value("headerCollapsed", Json()).is_boolean() ||
         !layout.value("pluginPadding", Json()).is_number_integer() || !finite_number(layout["pluginPadding"], 0, 48)) {
         error = "layout 字段不合法"; return false;
+    }
+    if (!layout["pluginPaddingOverrides"].is_object() || layout["pluginPaddingOverrides"].size() > 256) {
+        error = "插件留白覆盖表不合法"; return false;
+    }
+    for (const auto& [id, padding] : layout["pluginPaddingOverrides"].items()) {
+        if (!std::regex_match(id, std::regex("[a-z0-9][a-z0-9.-]{0,127}")) ||
+            !padding.is_number_integer() || !finite_number(padding, 0, 48)) {
+            error = "插件留白参数不合法"; return false;
+        }
     }
     const auto& navigation = value["navigation"];
     if (!known_keys(navigation, {"rememberLastPlugin", "lastPluginId"}) ||
@@ -200,10 +210,19 @@ bool SettingsStore::update(const Json& patch, std::string& error) {
     for (const auto* group : {"layout", "navigation"}) {
         if (!patch.contains(group)) continue;
         const bool valid = std::string_view(group) == "layout"
-            ? known_keys(patch[group], {"sidebarCollapsed", "headerCollapsed", "pluginPadding"})
+            ? known_keys(patch[group], {"sidebarCollapsed", "headerCollapsed", "pluginPadding", "pluginPaddingOverrides"})
             : known_keys(patch[group], {"rememberLastPlugin", "lastPluginId"});
         if (!valid) { error = "布局或导航补丁包含未知字段"; return false; }
-        for (const auto& [key, item] : patch[group].items()) candidate[group][key] = item;
+        for (const auto& [key, item] : patch[group].items()) {
+            // 覆盖表按插件差量合并，null 删除单项；并发修改不会覆盖其他插件的记录。
+            if (key == "pluginPaddingOverrides") {
+                if (!item.is_object()) { error = "插件留白补丁不合法"; return false; }
+                for (const auto& [id, padding] : item.items()) {
+                    if (padding.is_null()) candidate[group][key].erase(id);
+                    else candidate[group][key][id] = padding;
+                }
+            } else candidate[group][key] = item;
+        }
     }
     if (!validate_document(candidate, error)) return false;
     value_ = std::move(candidate);
@@ -213,6 +232,23 @@ bool SettingsStore::update(const Json& patch, std::string& error) {
 void SettingsStore::reset() {
     std::lock_guard lock(mutex_);
     value_ = defaults();
+}
+
+// IPC 线程只读取当前原生身份对应的布局，不向插件暴露其他插件或全局设置内容。
+Json SettingsStore::plugin_layout(const std::string& plugin_id) const {
+    std::lock_guard lock(mutex_);
+    const auto& layout = value_["layout"];
+    const auto override_value = layout["pluginPaddingOverrides"].value(plugin_id, Json());
+    return {{"padding", override_value.is_null() ? layout["pluginPadding"] : override_value},
+        {"override", override_value}, {"defaultPadding", layout["pluginPadding"]}};
+}
+
+// 插件 ID 由宿主绑定；复用原子补丁校验和锁，null 恢复跟随全局值。
+bool SettingsStore::set_plugin_padding(const std::string& plugin_id, const Json& padding, std::string& error) {
+    if (!std::regex_match(plugin_id, std::regex("[a-z0-9][a-z0-9.-]{0,127}"))) {
+        error = "插件标识不合法"; return false;
+    }
+    return update({{"layout", {{"pluginPaddingOverrides", {{plugin_id, padding}}}}}}, error);
 }
 
 bool SettingsStore::remember_geometry() const {

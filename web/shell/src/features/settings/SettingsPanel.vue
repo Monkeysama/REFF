@@ -20,7 +20,7 @@ const t = computed(() => (key: Parameters<typeof translate>[1]) => translate(pro
   <div class="settings-panel" data-reff-system-settings>
     <GeneralSection :language="settings.language" :startup="settings.startup" :navigation="settings.navigation" @change="emit('change', $event)" />
     <HotkeySection :hotkey="settings.hotkey" :language="settings.language" @change="emit('change', { hotkey: $event })" @capture="emit('hotkeyCapture', $event)" />
-    <LayoutSection :layout="settings.layout" :language="settings.language" @change="emit('change', { layout: $event })" />
+    <LayoutSection :layout="settings.layout" :plugins="plugins" :language="settings.language" @change="emit('change', { layout: $event })" />
     <AppearanceSection :appearance="settings.appearance" :language="settings.language" @change="emit('change', { appearance: $event })" />
     <InputSection :input="settings.input" :language="settings.language" @change="emit('change', { input: $event })" />
     <WindowSection :window-settings="settings.window" :language="settings.language" @change="emit('change', { window: $event })" />

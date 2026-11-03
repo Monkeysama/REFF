@@ -142,6 +142,14 @@ int main() {
                 settings.snapshot()["appearance"].value("textScale", 0.0) == 1.0 &&
                 settings.snapshot()["startup"].value("preload", false), "settings defaults");
             require(!settings.update({{"unknown", true}}, error), "unknown settings rejected");
+            require(settings.plugin_layout("example.vue")["padding"]==24, "default plugin padding is 24");
+            require(settings.set_plugin_padding("example.vue",0,error) && settings.plugin_layout("example.vue")["padding"]==0,
+                "plugin zero override");
+            require(settings.set_plugin_padding("example.react",48,error) && settings.plugin_layout("example.vue")["padding"]==0,
+                "plugin overrides do not clobber other plugins");
+            require(!settings.set_plugin_padding("example.vue",49,error) && !settings.set_plugin_padding("example.vue",1.5,error), "plugin range validation");
+            require(settings.set_plugin_padding("example.vue",nullptr,error) && settings.plugin_layout("example.vue")["override"].is_null(), "plugin inherits after null");
+            require(settings.plugin_layout("example.react")["padding"]==48, "clearing preserves another plugin override");
             require(settings.snapshot()["layout"]["sidebarCollapsed"]==true && settings.snapshot()["layout"]["headerCollapsed"]==true &&
                 settings.snapshot()["navigation"]["rememberLastPlugin"]==true, "compact and remembered navigation defaults");
             require(settings.update({{"layout",{{"sidebarCollapsed",false},{"pluginPadding",0}}},{"navigation",{{"lastPluginId","example.vue"}}}},error), "layout navigation patch");
@@ -162,6 +170,11 @@ int main() {
             require(restored && restored->left == 640 && restored->top == 293 && restored->width == 1280 && restored->height == 853,
                 "settings geometry scaled");
             require(loaded.snapshot()["layout"]["pluginPadding"]==0 && loaded.snapshot()["navigation"]["lastPluginId"]=="example.vue", "layout and last plugin persisted");
+            require(loaded.plugin_layout("example.react")["padding"]==48, "plugin override persisted");
+            auto previous=loaded.snapshot();previous["layout"]["pluginPadding"]=12;previous["layout"].erase("pluginPaddingOverrides");
+            { std::ofstream stream(path);stream<<previous.dump(); }
+            loaded.open(path,warning);
+            require(loaded.plugin_layout("example.vue")["padding"]==12 && loaded.snapshot()["layout"]["pluginPaddingOverrides"].empty(), "previous explicit padding preserved");
             auto old=loaded.snapshot();old.erase("layout");old.erase("navigation");
             { std::ofstream stream(path);stream<<old.dump(); }
             loaded.open(path,warning);

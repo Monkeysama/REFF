@@ -707,6 +707,22 @@ bool is_configured_hotkey(UINT message, WPARAM key, LPARAM lparam) {
 // Core 设置请求在 IPC 线程完成，不经过 Lua，因此脚本重载和单个插件故障不会阻断设置页。
 bool handle_settings_request(const Json& request) {
     const auto method = request.value("method", std::string{});
+    if (method == "ui.layout.get" || method == "ui.layout.set") {
+        auto response = Json{{"type", "response"}, {"id", request.value("id", std::string{})}, {"epoch", runtime->epoch.load()}};
+        try {
+            const auto id = request.at("pluginId").get<std::string>();
+            if (id.empty()) throw std::runtime_error("布局接口只允许当前插件调用");
+            if (method == "ui.layout.set") {
+                std::string error;
+                if (!runtime->settings.set_plugin_padding(id, request.at("params").at("padding"), error) ||
+                    !runtime->settings.save(error)) throw std::runtime_error(error);
+                runtime->channel.send({{"type", "settings_changed"}});
+            }
+            response["result"] = runtime->settings.plugin_layout(id);
+        } catch (const std::exception& exception) { response["error"] = {{"code", "INVALID_ARGUMENT"}, {"message", exception.what()}}; }
+        runtime->channel.send(std::move(response));
+        return true;
+    }
     if (method != "reff.settings.get" && method != "reff.settings.set" && method != "reff.settings.reset" && method != "reff.settings.hotkey.capture") return false;
     auto response = Json{{"type", "response"}, {"id", request.value("id", std::string{})}, {"epoch", runtime->epoch.load()}};
     try {

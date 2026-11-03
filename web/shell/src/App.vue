@@ -38,7 +38,7 @@ const settings = shallowRef<ReffSettings>({
   hotkey: { key: 119, modifiers: 0 },
   appearance: { preset: 'emerald', accent: '#67D3B2', background: '#10151E', surface: '#151D28', backgroundOpacity: 0.94, cornerRadius: 6, surfaceBlur: 8, textScale: 1 },
   startup: { preload: true },
-  layout: { sidebarCollapsed: true, headerCollapsed: true, pluginPadding: 12 },
+  layout: { sidebarCollapsed: true, headerCollapsed: true, pluginPadding: 24, pluginPaddingOverrides: {} },
   navigation: { rememberLastPlugin: true, lastPluginId: settingsPluginId },
   input: { mousePassthrough: false, keyboardPassthrough: false },
   window: { rememberGeometry: true },
@@ -57,6 +57,30 @@ let lifecycleBusy = false;
 let inputFocusReporter: (() => void) | null = null;
 let devVersion = '';
 const dragRegion = shallowRef<HTMLElement | null>(null);
+const sidebarHovered = shallowRef(false);
+const headerHovered = shallowRef(false);
+const sidebarFocused = shallowRef(false);
+const headerFocused = shallowRef(false);
+const sidebarShown = computed(() => !settings.value.layout.sidebarCollapsed || sidebarHovered.value || sidebarFocused.value);
+const headerShown = computed(() => !settings.value.layout.headerCollapsed || headerHovered.value || headerFocused.value);
+const pluginPadding = computed(() => settings.value.layout.pluginPaddingOverrides[selectedPluginId.value || ''] ?? settings.value.layout.pluginPadding);
+// 悬浮只影响外壳，不重建插件文档；键盘焦点保持可见，鼠标点击菜单后离开即可隐藏。
+function chromeFocus(event: FocusEvent, side: 'sidebar' | 'header') {
+  const state = side === 'sidebar' ? sidebarFocused : headerFocused;
+  if (event.type === 'focusin') state.value = (event.target as HTMLElement).matches(':focus-visible');
+  else { const node = event.currentTarget as HTMLElement; void nextTick(() => { if (!node.contains(document.activeElement)) state.value = false; }); }
+}
+// 提示按钮以键盘聚焦时把焦点交给已展开栏的首个控件，避免隐藏提示后丢失焦点。
+function focusChrome(event: FocusEvent, side: 'sidebar' | 'header') {
+  if (!(event.target as HTMLElement).matches(':focus-visible')) return;
+  (side === 'sidebar' ? sidebarFocused : headerFocused).value = true;
+  void nextTick(() => document.querySelector<HTMLButtonElement>(side === 'sidebar' ? '.nav-pin' : '.sidebar-toggle')?.focus({ preventScroll: true }));
+}
+function suspendChrome() { sidebarHovered.value = headerHovered.value = sidebarFocused.value = headerFocused.value = false; }
+// 插件修改自己的留白后由 Core 通知 Shell；读取排在已有设置写入之后，避免迟到快照覆盖新值。
+function refreshSettings() {
+  settingsQueue = settingsQueue.then(async () => { applySettings(await reff.call<ReffSettings>('reff.settings.get')); }).catch(() => {});
+}
 let regionObserver: ResizeObserver | undefined;
 
 const activePlugin = computed(() => plugins.value.find(plugin => plugin.id === selectedPluginId.value) || null);
@@ -199,13 +223,12 @@ function rememberSelection(id: string) {
 
 // 上报纯标题区，不包含折叠按钮；原生层按真实视口换算拖动命中区域。
 async function reportDragRegion() {
-  const rect = dragRegion.value?.getBoundingClientRect();
-  if (!rect) return;
+  const rect = headerShown.value ? dragRegion.value?.getBoundingClientRect() : undefined;
   try { await reff.call('ui.window.regions', { viewportWidth: innerWidth, viewportHeight: innerHeight,
-    rects: [{ x: Math.round(rect.left), y: Math.round(rect.top), width: Math.floor(rect.width), height: Math.floor(rect.height) }] }); }
+    rects: rect ? [{ x: Math.round(rect.left), y: Math.round(rect.top), width: Math.floor(rect.width), height: Math.floor(rect.height) }] : [] }); }
   catch { /* 宿主退出时无需弹窗，布局再次变化时重新提交。 */ }
 }
-watch(() => settings.value.layout, async () => { await nextTick(); void reportDragRegion(); }, { deep: true });
+watch([headerShown, sidebarShown, () => settings.value.layout], async () => { await nextTick(); void reportDragRegion(); }, { deep: true });
 
 // 将最新偏好同步到 Shell 与当前隔离页面；插件公共 UI 只消费经过 Core 校验的结构化值。
 function applySettings(value: ReffSettings) {
@@ -352,13 +375,13 @@ async function pollLifecycle() {
 // 独立 smoke 检查固定头部与正文边界；生产页面不会主动开启此路径。
 function verifyShellLayout() {
   const workspace = document.querySelector<HTMLElement>('.reff-workspace');
-  const header = workspace?.querySelector<HTMLElement>(':scope > .window-bar');
+  const header = workspace?.querySelector<HTMLElement>('.header-chrome > .window-bar');
   const content = workspace?.querySelector<HTMLElement>(':scope > .workspace-content');
   if (!workspace || !header || !content) throw new Error('Shell 工作区结构缺失');
   const workspaceRect = workspace.getBoundingClientRect();
   const headerRect = header.getBoundingClientRect();
   const contentRect = content.getBoundingClientRect();
-  if (Math.abs(headerRect.top - workspaceRect.top) > 1 || contentRect.top < headerRect.bottom - 1)
+  if (Math.abs(headerRect.top - workspaceRect.top) > 1 || (!settings.value.layout.headerCollapsed && contentRect.top < headerRect.bottom - 1))
     throw new Error('Shell 固定标题栏与正文发生间距或重叠');
 }
 
@@ -401,6 +424,8 @@ async function runSelfTest() {
 onMounted(async () => {
   inputFocusReporter = installInputFocusReporter(reff);
   window.addEventListener('message', onEmbeddedMessage);
+  window.addEventListener('reff:settings-changed', refreshSettings);
+  window.addEventListener('reff:input-suspend', suspendChrome);
   regionObserver = new ResizeObserver(() => { void reportDragRegion(); });
   if (dragRegion.value) regionObserver.observe(dragRegion.value);
   try { applySettings(await reff.call<ReffSettings>('reff.settings.get')); }
@@ -429,6 +454,8 @@ onBeforeUnmount(async () => {
   regionObserver?.disconnect();
   inputFocusReporter = null;
   window.removeEventListener('message', onEmbeddedMessage);
+  window.removeEventListener('reff:settings-changed', refreshSettings);
+  window.removeEventListener('reff:input-suspend', suspendChrome);
   await cleanupSubscriptions();
   reff.dispose();
 });
@@ -436,16 +463,18 @@ onBeforeUnmount(async () => {
 
 <template>
   <el-config-provider :locale="elementLocale">
-  <el-container class="reff-shell" :class="{ 'sidebar-collapsed': settings.layout.sidebarCollapsed, 'header-collapsed': settings.layout.headerCollapsed }">
+  <el-container class="reff-shell" :class="{ 'sidebar-collapsed': settings.layout.sidebarCollapsed, 'header-collapsed': settings.layout.headerCollapsed, 'sidebar-shown': sidebarShown, 'header-shown': headerShown }">
     <a class="skip-link" href="#workspace-content">{{ t('skipContent') }}</a>
-    <el-aside :width="settings.layout.sidebarCollapsed ? '56px' : '208px'" class="navigation">
-      <div class="brand"><strong class="brand-name">RE<span>FF</span></strong><small>v{{ reffVersion }}</small></div>
+    <div class="sidebar-chrome" @mouseenter="sidebarHovered = true" @mouseleave="sidebarHovered = false" @focusin="chromeFocus($event, 'sidebar')" @focusout="chromeFocus($event, 'sidebar')">
+    <div v-if="settings.layout.sidebarCollapsed" class="sidebar-edge" @mouseenter="sidebarHovered = true"><button class="edge-hint sidebar-hint" type="button" :aria-label="t('revealSidebar')" :aria-expanded="sidebarShown" @focus="focusChrome($event, 'sidebar')" @click="sidebarHovered = true"><span class="chrome-icon"><Expand /></span></button></div>
+    <el-aside width="208px" class="navigation" :inert="!sidebarShown">
+      <div class="brand"><strong class="brand-name">RE<span>FF</span></strong><small>v{{ reffVersion }}</small><button class="chrome-button nav-pin" type="button" :aria-label="t(settings.layout.sidebarCollapsed ? 'expandSidebar' : 'collapseSidebar')" :aria-pressed="!settings.layout.sidebarCollapsed" @click="updateSettings({ layout: { sidebarCollapsed: !settings.layout.sidebarCollapsed } })"><span class="chrome-icon"><Fold /></span></button></div>
       <nav :aria-label="t('plugins')">
       <el-menu :default-active="activeMenu">
-        <el-tooltip :content="t('settings')" placement="right" :disabled="!settings.layout.sidebarCollapsed">
+        <el-tooltip :content="t('settings')" placement="right" :disabled="true">
           <el-menu-item :data-plugin-id="settingsPluginId" :index="`plugin:${settingsPluginId}`" :aria-label="t('settings')" @click="selectSettings"><span class="chrome-icon" aria-hidden="true"><Setting /></span><span class="nav-label">{{ t('settings') }}</span></el-menu-item>
         </el-tooltip>
-        <el-tooltip v-for="plugin in plugins" :key="plugin.id" :content="pluginName(plugin)" placement="right" :disabled="!settings.layout.sidebarCollapsed">
+        <el-tooltip v-for="plugin in plugins" :key="plugin.id" :content="pluginName(plugin)" placement="right" :disabled="true">
           <el-menu-item :data-plugin-id="plugin.id" :index="`plugin:${plugin.id}`" :aria-label="pluginName(plugin)" @click="selectPlugin(plugin)">
             <span class="plugin-monogram" aria-hidden="true">{{ plugin.id.split('.').slice(-1)[0]?.slice(0, 2).toUpperCase() }}</span><span class="nav-label">{{ pluginName(plugin) }}</span>
           </el-menu-item>
@@ -454,8 +483,11 @@ onBeforeUnmount(async () => {
       </nav>
       <div class="status" :title="statusText"><i :class="{ ready }"/><span class="nav-label">{{ statusText }}</span></div>
     </el-aside>
+    </div>
     <section class="reff-workspace">
-      <header class="window-bar">
+      <div class="header-chrome" @mouseenter="headerHovered = true" @mouseleave="headerHovered = false" @focusin="chromeFocus($event, 'header')" @focusout="chromeFocus($event, 'header')">
+      <div v-if="settings.layout.headerCollapsed" class="header-edge" @mouseenter="headerHovered = true"><button class="edge-hint header-hint" type="button" :aria-label="t('revealHeader')" :aria-expanded="headerShown" @focus="focusChrome($event, 'header')" @click="headerHovered = true"><span class="chrome-icon"><ArrowDown /></span></button></div>
+      <header class="window-bar" :inert="!headerShown">
         <button class="chrome-button sidebar-toggle" type="button" :aria-label="t(settings.layout.sidebarCollapsed ? 'expandSidebar' : 'collapseSidebar')" :title="t(settings.layout.sidebarCollapsed ? 'expandSidebar' : 'collapseSidebar')" :aria-expanded="!settings.layout.sidebarCollapsed" @click="updateSettings({ layout: { sidebarCollapsed: !settings.layout.sidebarCollapsed } })"><span class="chrome-icon" aria-hidden="true"><Expand v-if="settings.layout.sidebarCollapsed" /><Fold v-else /></span></button>
         <div ref="dragRegion" class="window-title" :title="`${currentPageTitle} v${currentPageVersion}${currentPageAuthor ? ' · ' + currentPageAuthor : ''}`">
           <h1>{{ currentPageTitle }}</h1>
@@ -464,7 +496,8 @@ onBeforeUnmount(async () => {
         </div>
         <button class="chrome-button header-toggle" type="button" :aria-label="t(settings.layout.headerCollapsed ? 'expandHeader' : 'collapseHeader')" :title="t(settings.layout.headerCollapsed ? 'expandHeader' : 'collapseHeader')" :aria-expanded="!settings.layout.headerCollapsed" @click="updateSettings({ layout: { headerCollapsed: !settings.layout.headerCollapsed } })"><span class="chrome-icon" aria-hidden="true"><ArrowDown v-if="settings.layout.headerCollapsed" /><ArrowUp v-else /></span></button>
       </header>
-      <el-main id="workspace-content" tabindex="-1" class="workspace-content" :class="{ 'plugin-content': !settingsActive }" :style="{ '--plugin-padding': `${settings.layout.pluginPadding}px` }">
+      </div>
+      <el-main id="workspace-content" tabindex="-1" class="workspace-content" :class="{ 'plugin-content': !settingsActive }" :style="{ '--plugin-padding': `${pluginPadding}px` }">
         <SettingsPanel v-if="settingsActive" :settings="settings" :plugins="plugins" :version="reffVersion" :saving="savingSettings" @change="updateSettings" @reset="resetSettings" @hotkey-capture="setHotkeyCapture" />
         <div v-else-if="isolatedPlugin" class="isolated-host">
           <iframe :key="isolatedReloadKey" ref="isolatedFrame" :src="isolatedPluginUrl" :title="pluginName(isolatedPlugin)" />
@@ -494,7 +527,9 @@ onBeforeUnmount(async () => {
 :global(html), :global(body) { overflow: hidden; }
 .reff-shell { position: relative; height: 100%; overflow: hidden; border-radius: var(--reff-corner-radius); cursor: none; isolation: isolate; background: transparent; }
 .reff-shell * { cursor: none !important; }
-.navigation { display: flex; flex-direction: column; min-height: 0; background: rgb(var(--reff-surface-rgb) / var(--reff-panel-opacity)); backdrop-filter: blur(var(--reff-surface-blur)); border-right: 1px solid var(--reff-border); }
+.sidebar-chrome { position: relative; flex: 0 0 208px; width: 208px; height: 100%; }
+.header-chrome { position: relative; flex: 0 0 64px; height: 64px; min-width: 0; }
+.navigation { height: 100%; display: flex; flex-direction: column; min-height: 0; background: rgb(var(--reff-surface-rgb) / var(--reff-panel-opacity)); backdrop-filter: blur(var(--reff-surface-blur)); border-right: 1px solid var(--reff-border); }
 .brand { height: 64px; flex: 0 0 64px; display: flex; align-items: center; gap: 8px; padding: 0 20px; }
 .brand-name { font-size: calc(21px * var(--reff-text-scale)); font-weight: 750; letter-spacing: 0; }
 .brand span { color: var(--reff-accent); }
@@ -509,12 +544,7 @@ nav { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .status { display: flex; align-items: center; gap: 8px; padding: 16px 20px; font-size: var(--reff-font-size-xs); color: var(--reff-muted); }
 .status i { flex: 0 0 6px; height: 6px; border-radius: 50%; background: var(--reff-muted); }
 .status i.ready { background: var(--reff-accent); }
-.sidebar-collapsed .brand { padding: 0; justify-content: center; }
-.sidebar-collapsed .brand-name { font-size: 15px; }
-.sidebar-collapsed .brand small, .sidebar-collapsed .nav-label { display: none; }
-.sidebar-collapsed :deep(.el-menu-item) { justify-content: center; padding: 0 !important; }
-.sidebar-collapsed .status { justify-content: center; padding: 16px 0; }
-.reff-workspace { flex: 1; height: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.reff-workspace { position: relative; flex: 1; height: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .window-bar { display: flex; align-items: center; gap: 4px; padding: 0 8px; min-height: 64px; flex: 0 0 64px; border-bottom: 1px solid var(--reff-border); background: rgb(var(--reff-surface-rgb) / var(--reff-panel-opacity)); backdrop-filter: blur(var(--reff-surface-blur)); }
 .window-title { align-self: stretch; flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; align-content: center; column-gap: 10px; row-gap: 2px; padding: 0 8px; user-select: none; }
 .window-title h1 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--reff-font-size-md); font-weight: 600; }
@@ -525,9 +555,23 @@ nav { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .chrome-button:active { background: color-mix(in srgb, var(--reff-text) 14%, transparent); }
 .chrome-icon { display: inline-flex; align-items: center; justify-content: center; font-size: 18px; }
 .chrome-icon :deep(svg) { width: 1em; height: 1em; fill: currentColor; }
-.header-collapsed .window-bar { min-height: 40px; flex-basis: 40px; }
-.header-collapsed .window-version, .header-collapsed .window-author { display: none; }
-.header-collapsed .brand { height: 40px; flex-basis: 40px; }
+/* 自动隐藏的外壳浮在正文上方，不占用插件空间；隐藏时仅边缘提示接收输入。 */
+.sidebar-collapsed .sidebar-chrome { position: absolute; z-index: 30; inset: 0 auto 0 0; width: 12px; max-width: 85%; }
+.sidebar-collapsed.sidebar-shown .sidebar-chrome { width: 208px; }
+.sidebar-collapsed .navigation { max-width: 100%; visibility: hidden; pointer-events: none; }
+.sidebar-collapsed.sidebar-shown .navigation { visibility: visible; pointer-events: auto; }
+.header-collapsed .header-chrome { position: absolute; z-index: 20; top: 0; left: 0; right: 0; height: 12px; }
+.header-collapsed.header-shown .header-chrome { height: 64px; }
+.header-collapsed .window-bar { height: 64px; visibility: hidden; pointer-events: none; }
+.header-collapsed.header-shown .window-bar { visibility: visible; pointer-events: auto; }
+.nav-pin { margin-left: auto; }
+.sidebar-edge { position: absolute; z-index: 31; left: 0; top: 0; bottom: 0; width: 12px; }
+.header-edge { position: absolute; z-index: 21; top: 0; left: 12px; right: 0; height: 12px; }
+.edge-hint { display: flex; align-items: center; justify-content: center; position: absolute; border: 1px solid var(--reff-border); padding: 0; background: rgb(var(--reff-surface-rgb) / var(--reff-panel-opacity)); color: var(--reff-muted); }
+.edge-hint:hover, .edge-hint:focus-visible { color: var(--reff-text); }
+.sidebar-hint { left: 0; top: calc(50% - 20px); width: 24px; height: 40px; border-left: 0; border-radius: 0 4px 4px 0; }
+.header-hint { left: calc(50% - 24px); top: 0; width: 48px; height: 20px; border-top: 0; border-radius: 0 0 4px 4px; }
+.sidebar-shown .sidebar-edge, .header-shown .header-edge { pointer-events: none; visibility: hidden; }
 .workspace-content { flex: 1; min-width: 0; min-height: 0; width: 100%; margin: 0; padding: 24px 32px; display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain; background: rgb(var(--reff-bg-rgb) / var(--reff-panel-opacity)); backdrop-filter: blur(var(--reff-surface-blur)); }
 .workspace-content.plugin-content { padding: var(--plugin-padding); }
 .workspace-content > * { flex-shrink: 0; }
@@ -544,8 +588,10 @@ nav { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 /* 窄窗口展开导航时覆盖正文，不挤压插件；标题按钮始终可达，拖动区仍由真实 DOM 上报。 */
 @media (max-width: 600px) {
   .workspace-content { padding: 20px 16px; }
-  .reff-shell:not(.sidebar-collapsed) .navigation { position: absolute; z-index: 2; top: 64px; bottom: 0; left: 0; max-width: 75%; border-top: 1px solid var(--reff-border); }
-  .reff-shell:not(.sidebar-collapsed).header-collapsed .navigation { top: 40px; }
+  .reff-shell:not(.sidebar-collapsed) .sidebar-chrome { position: absolute; z-index: 30; top: 64px; bottom: 0; left: 0; height: auto; max-width: 75%; border-top: 1px solid var(--reff-border); }
+  .reff-shell:not(.sidebar-collapsed).header-collapsed .sidebar-chrome { top: 0; }
+  .reff-shell:not(.sidebar-collapsed).header-collapsed .window-bar { left: 0; }
+  .reff-shell:not(.sidebar-collapsed) .header-edge { left: 12px; }
   .reff-shell:not(.sidebar-collapsed) .brand { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .reff-shell :deep(*) { scroll-behavior: auto !important; transition: none !important; } }

@@ -10,6 +10,8 @@ export interface ReffTransport {
   dispose?(): void;
 }
 export interface ReffSubscription { unsubscribe(): Promise<void>; }
+/** ui.layout.get/set 的当前插件留白快照；override 为 null 时跟随全局值。 */
+export interface ReffPluginLayout { padding: number; override: number | null; defaultPadding: number; }
 export interface ReffClient {
   ready(): Promise<void>;
   call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
