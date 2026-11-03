@@ -3,10 +3,10 @@ $ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 # 检查归档本身，不以 staging 清单代替分发证据；正式包严格排除示例和旧引擎。
 foreach ($archive in $Archives) {
+    if ([IO.Path]::GetFileName($archive) -match '-(tools|examples|experimental)\.zip$') { throw '正式发布只允许核心包' }
     $zip=[IO.Compression.ZipFile]::OpenRead([IO.Path]::GetFullPath($archive))
     try {
-        $isTools=[IO.Path]::GetFileName($archive) -match '-tools\.zip$'
-        $prefix=if($isTools){'tools/'}else{'reframework/'}
+        $prefix='reframework/'
         $files=@{};$total=0L
         foreach ($entry in $zip.Entries) {
             $name=$entry.FullName.Replace('\','/')
@@ -15,15 +15,6 @@ foreach ($archive in $Archives) {
             if (-not $entry.Name) { continue }
             if ($files.ContainsKey($name)) { throw '归档重复文件' }
             $files[$name]=$entry;$total+=$entry.Length
-        }
-        if ([IO.Path]::GetFileName($archive) -match '-(examples|experimental)\.zip$') { throw '不再发布示例包或实验包' }
-        if ($isTools) {
-            # 工具包只包含五个明确入口，不夹带原生模块、游戏数据或网页。
-            $required=@('install-reff.ps1','package-files.ps1','collect-installed-compatibility.ps1','game-support.json','README.md')
-            if ($files.Count -ne $required.Count) { throw '工具包文件数量不符' }
-            foreach ($name in $required) { if (-not $files.ContainsKey('tools/'+$name)) { throw "工具包缺少：$name" } }
-            [pscustomobject]@{archive=[IO.Path]::GetFullPath($archive);files=$files.Count;uncompressedBytes=$total;passed=$true}
-            continue
         }
         & {
             foreach ($name in $files.Keys) {

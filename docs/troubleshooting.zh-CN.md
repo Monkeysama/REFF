@@ -7,5 +7,5 @@
 - 运行时缺失或过旧：查看 `data/REFF/log/webview2/summary.json`。REFF 当前要求 WebView2 Evergreen 稳定版 ≥155.0.4283.62；仅在检测未通过时安装或更新。系统精简、手动移除或更新受限可能影响运行时。REFF 不自动下载或提权安装依赖。
 - 中文输入异常：默认构建已启用透明 IME 代理；检查 `data/REFF/log/` 并说明发生在主页面还是插件输入框。
 - 修改 Lua 后：执行 REFramework 的 Reset Scripts；修改网页资源后重新打开插件页面即可，必要时增加资源版本号避免缓存。
-- 最小诊断：另下载同版本可选工具包，运行其中的 `tools/collect-installed-compatibility.ps1 -ReframeworkRoot "<游戏目录>\reframework"`。只提取版本、哈希、数值和初始化状态，不复制原始日志、设置、缓存或输入文本。
+- 最小诊断：从[源码仓库](https://github.com/Monkeysama/REFF)运行 `tools/collect-installed-compatibility.ps1 -ReframeworkRoot "<游戏目录>\reframework"`。只提取版本、哈希、数值和初始化状态，不复制原始日志、设置、缓存或输入文本。
 - 开发热重载默认关闭，启用方法见[插件开发](plugin-development.zh-CN.md)。

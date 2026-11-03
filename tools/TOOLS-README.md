@@ -1,11 +1,11 @@
-# REFF 可选工具
+# REFF 源码维护脚本
 
-普通安装只需将核心包内的 `reframework` 文件夹合并到游戏根目录。需要备份升级、恢复或诊断时，再下载工具包。
+普通安装只需将核心包内的 `reframework` 文件夹合并到游戏根目录。以下脚本保留在源码仓库供维护使用，不发布独立工具包。
 
-将核心包和工具包解压到同一临时目录，得到并排的 `reframework/` 与 `tools/`，退出游戏后执行：
+从仓库构建并运行 `tools/stage.ps1` 后，得到并排的 `staging/reframework/` 与 `staging/tools/`；后者只供开发部署和安装自检。退出游戏后执行：
 
 ```powershell
-& "<临时目录>\tools\install-reff.ps1" -ReframeworkRoot "<游戏目录>\reframework"
+& "<仓库目录>\staging\tools\install-reff.ps1" -ReframeworkRoot "<游戏目录>\reframework"
 ```
 
 若核心包在其他目录，增加 `-SourceRoot "<核心包解压目录>\reframework"`。

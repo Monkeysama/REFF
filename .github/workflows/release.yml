@@ -2,8 +2,14 @@ name: REFF Release
 
 on:
   push:
+    branches: [main]
     tags:
       - 'v*.*.*'
+    paths:
+      - 'CHANGELOG.md'
+      - 'tools/release-notes.ps1'
+      - 'tools/update-release-metadata.ps1'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
     inputs:
       tag:
@@ -20,7 +26,28 @@ permissions:
   contents: write
 
 jobs:
+  metadata:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    steps:
+      - name: 检出发布说明
+        uses: actions/checkout@v4
+      - name: 验证发布说明维护契约
+        shell: pwsh
+        run: .\tools\test-release-notes.ps1
+      - name: 更新已发布版本的说明与附件
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content version.json -Raw | ConvertFrom-Json).version
+          $tags = gh release list --limit 100 --json tagName | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw '读取已发布版本失败' }
+          if (@($tags.tagName) -contains "v$version") {
+            .\tools\update-release-metadata.ps1 -Tag "v$version"
+          } else { Write-Host '当前版本尚未发布，等待正式标签构建。' }
   release:
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - name: 检出仓库
@@ -101,8 +128,6 @@ jobs:
           path: |
             artifacts/REFF-${{ env.REFF_VERSION }}.zip
             artifacts/REFF-${{ env.REFF_VERSION }}.zip.sha256
-            artifacts/REFF-${{ env.REFF_VERSION }}-tools.zip
-            artifacts/REFF-${{ env.REFF_VERSION }}-tools.zip.sha256
             artifacts/webview2-p1/**/summary.json
             artifacts/webview2-p1/**/integration-summary.json
             artifacts/webview2-p1/**/smoke-summary.json

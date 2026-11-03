@@ -55,7 +55,7 @@ foreach ($file in $licenseFiles) {
 $notice=Resolve-REFFFile $stageRoot 'reff/THIRD-PARTY-NOTICES.txt'
 New-Item -ItemType Directory -Path (Split-Path $notice) -Force | Out-Null
 [IO.File]::WriteAllText($notice,$licenseText.ToString(),(New-Object Text.UTF8Encoding($false)))
-# 工具单独分发，与核心包解压目录并排，不进入游戏安装目录。
+# 维护脚本只供本地开发部署及安装自检；不压缩、上传或放入游戏目录。
 $toolsRoot=Join-Path $StagingRoot 'tools'
 $null=Resolve-REFFFile $toolsRoot 'reff/package.json'
 New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null

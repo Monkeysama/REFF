@@ -45,30 +45,14 @@ if ($Archive) {
         Assert-Rejected { & (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($badZip) } 'unsafe zip path'
     }
 }
-$toolsArchive=''
+# 废弃附件即使存在于旧 artifacts 目录，也必须被正式归档校验拒绝。
 if ($Archive) {
-    $candidate=Join-Path (Split-Path -Parent $Archive) (([IO.Path]::GetFileNameWithoutExtension($Archive))+'-tools.zip')
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $toolsArchive=$candidate }
-}
-if ($toolsArchive) {
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    & (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($toolsArchive) | Out-Null
-    # 缺失、夹带及越界条目分别验证，不能让一个更早的错误掩盖另一项拒绝条件。
-    foreach ($kind in @('missing','extra','path')) {
-        $broken=Join-Path $fixture ("REFF-$kind-tools.zip")
-        Copy-Item -LiteralPath $toolsArchive -Destination $broken
-        $zip=[IO.Compression.ZipFile]::Open($broken,[IO.Compression.ZipArchiveMode]::Update)
-        try {
-            if ($kind -eq 'missing') {
-                $entry=@($zip.Entries | Where-Object { $_.FullName.Replace('\','/') -eq 'tools/install-reff.ps1' })
-                $entry[0].Delete()
-            } else {
-                $name=if($kind -eq 'extra'){'tools/unexpected.exe'}else{'tools/../outside'}
-                $null=$zip.CreateEntry($name)
-            }
-        } finally { $zip.Dispose() }
-        Assert-Rejected { & (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($broken) } "invalid tools archive $kind"
+    foreach ($suffix in @('tools','examples','experimental')) {
+        $unsupported=Join-Path $fixture ("REFF-unsupported-$suffix.zip")
+        Copy-Item -LiteralPath $Archive -Destination $unsupported
+        Assert-Rejected { & (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($unsupported) } "unsupported release asset $suffix"
     }
 }
-@{passed=$true;stableTagContract=$true;archiveChecked=[bool]$Archive;toolsArchiveChecked=[bool]$toolsArchive;gameValidated=$false} |
+& (Join-Path $PSScriptRoot 'test-release-notes.ps1') | Out-Null
+@{passed=$true;stableTagContract=$true;archiveChecked=[bool]$Archive;coreOnly=$true;currentVersionNotes=$true;gameValidated=$false} |
     ConvertTo-Json | Tee-Object -FilePath (Join-Path $fixture 'summary.json')
