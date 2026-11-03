@@ -54,5 +54,7 @@ try {
     Assert-NotesRejected { & $update -Tag "v$($global:reffReleaseNotesTest.version)" }
     Assert-Notes ($global:reffReleaseNotesTest.calls.Count -eq 3) '删除失败未及时终止'
 } finally { Remove-Item Function:gh;Remove-Variable reffReleaseNotesTest -Scope Global }
+# 所有断言通过后清除预期失败的模拟退出码，避免 Actions 的 pwsh 包装器误判。
+$global:LASTEXITCODE=0
 @{passed=$true;currentVersionOnly=$true;exactToolAssetCleanup=$true;coreAssetsUnchanged=$true;failurePaths=$true} |
     ConvertTo-Json | Tee-Object -FilePath (Join-Path $fixture 'summary.json')

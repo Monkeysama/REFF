@@ -8,6 +8,7 @@ on:
     paths:
       - 'CHANGELOG.md'
       - 'tools/release-notes.ps1'
+      - 'tools/test-release-notes.ps1'
       - 'tools/update-release-metadata.ps1'
       - '.github/workflows/release.yml'
   workflow_dispatch:
