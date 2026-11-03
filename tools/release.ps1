@@ -22,6 +22,8 @@ $artifactsRoot=Join-Path $repoRoot 'artifacts'
 New-Item -ItemType Directory -Force -Path $artifactsRoot | Out-Null
 $runtimeZip=Join-Path $artifactsRoot "REFF-$projectVersion.zip"
 $runtimeHash="$runtimeZip.sha256"
+$toolsZip=Join-Path $artifactsRoot "REFF-$projectVersion-tools.zip"
+$toolsHash="$toolsZip.sha256"
 if (-not $SkipBuild) {
     & (Join-Path $PSScriptRoot 'build-web.ps1')
     & (Join-Path $PSScriptRoot 'build.ps1')
@@ -31,8 +33,11 @@ if (-not $SkipBuild) {
 Compress-Archive -Path (Join-Path $repoRoot 'staging/reframework') -DestinationPath $runtimeZip -CompressionLevel Optimal -Force
 $hash=(Get-FileHash -LiteralPath $runtimeZip -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $([IO.Path]::GetFileName($runtimeZip))" | Set-Content -LiteralPath $runtimeHash -Encoding ascii
-& (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($runtimeZip)
-Get-Item -LiteralPath $runtimeZip,$runtimeHash | Select-Object Name,Length | Format-Table -AutoSize
+Compress-Archive -Path (Join-Path $repoRoot 'staging/tools') -DestinationPath $toolsZip -CompressionLevel Optimal -Force
+$hash=(Get-FileHash -LiteralPath $toolsZip -Algorithm SHA256).Hash.ToLowerInvariant()
+"$hash  $([IO.Path]::GetFileName($toolsZip))" | Set-Content -LiteralPath $toolsHash -Encoding ascii
+& (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($runtimeZip,$toolsZip)
+Get-Item -LiteralPath $runtimeZip,$runtimeHash,$toolsZip,$toolsHash | Select-Object Name,Length | Format-Table -AutoSize
 if ($Publish) {
     # 上传由显式参数或受信任标签工作流授权；游戏测试状态独立记录。
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw '未找到 GitHub CLI gh' }
@@ -40,9 +45,9 @@ if ($Publish) {
     if ($LASTEXITCODE -eq 0) {
         & gh release edit $normalizedTag --title "REFF $normalizedTag" --notes-file (Join-Path $repoRoot 'CHANGELOG.md') --prerelease=false --latest
         if ($LASTEXITCODE -ne 0) { throw 'GitHub Release 更新失败' }
-        & gh release upload $normalizedTag $runtimeZip $runtimeHash --clobber
+        & gh release upload $normalizedTag $runtimeZip $runtimeHash $toolsZip $toolsHash --clobber
     } else {
-        & gh release create $normalizedTag $runtimeZip $runtimeHash --title "REFF $normalizedTag" --notes-file (Join-Path $repoRoot 'CHANGELOG.md') --verify-tag --latest
+        & gh release create $normalizedTag $runtimeZip $runtimeHash $toolsZip $toolsHash --title "REFF $normalizedTag" --notes-file (Join-Path $repoRoot 'CHANGELOG.md') --verify-tag --latest
     }
     if ($LASTEXITCODE -ne 0) { throw 'GitHub Release 发布失败' }
     Write-Host "GitHub 正式版已发布：$normalizedTag"

@@ -5,7 +5,10 @@
 )
 $ErrorActionPreference='Stop'
 # 随包路径在参数绑定完成后解析，兼容 Windows PowerShell 5.1 的 -File 入口。
-if (-not $SourceRoot) { $SourceRoot=Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
+if (-not $SourceRoot) {
+    $sibling=Join-Path (Split-Path -Parent $PSScriptRoot) 'reframework'
+    $SourceRoot=if(Test-Path -LiteralPath $sibling -PathType Container){$sibling}else{Split-Path -Parent (Split-Path -Parent $PSScriptRoot)}
+}
 . (Join-Path $PSScriptRoot 'package-files.ps1')
 # 随包离线安装；进程只读检查，不启动/退出游戏，不下载或安装系统 Runtime。
 $target=[IO.Path]::GetFullPath($ReframeworkRoot).TrimEnd('\')
@@ -70,7 +73,7 @@ $package=Get-Content -LiteralPath (Resolve-REFFFile $source 'reff/package.json')
 if ($package.backend -ne 'webview2' -or $package.schemaVersion -ne 1) { throw '不是受支持的 WebView2 分发包' }
 $files=@(Read-REFFManifest (Resolve-REFFFile $source 'reff/package-manifest.json') $source -Verify)
 if ($files.path -contains 'reff/installed-manifest.json' -or $files.path -contains 'reff/package-manifest.json') { throw '分发清单不能包含安装状态或自身' }
-foreach ($required in @('plugins/REFF.dll','reff/runtime/reff-webview2-host.exe','reff/package.json','autorun/REFF.lua','reff/ui/index.html')) {
+foreach ($required in @('plugins/REFF.dll','reff/runtime/reff-webview2-host.exe','reff/package.json','autorun/REFF.lua')) {
     if ($required -notin $files.path) { throw "分发清单缺少必要文件：$required" }
 }
 $files+= [pscustomobject]@{path='reff/package-manifest.json';sha256=(Get-FileHash -LiteralPath (Join-Path $source 'reff/package-manifest.json')).Hash}

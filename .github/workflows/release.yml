@@ -100,6 +100,8 @@ jobs:
           path: |
             artifacts/REFF-${{ env.REFF_VERSION }}.zip
             artifacts/REFF-${{ env.REFF_VERSION }}.zip.sha256
+            artifacts/REFF-${{ env.REFF_VERSION }}-tools.zip
+            artifacts/REFF-${{ env.REFF_VERSION }}-tools.zip.sha256
             artifacts/webview2-p1/**/summary.json
             artifacts/webview2-p1/**/integration-summary.json
             artifacts/webview2-p1/**/smoke-summary.json

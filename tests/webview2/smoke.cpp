@@ -23,7 +23,7 @@ int wmain(int argc,wchar_t** argv) {
         std::filesystem::create_directories(cache);
         auto command=L"\""+host.wstring()+L"\" --reff-session="+session+L" --reff-cache=\""+cache.wstring()+L"\"";
         // 显式传入独立资源根，不接触游戏资源。
-        command+=L" --reff-assets=\""+std::filesystem::absolute(argv[3]).wstring()+
+        command+=L" --selftest --reff-test-disk-shell --reff-assets=\""+std::filesystem::absolute(argv[3]).wstring()+
             L"\" --reff-manifests=\""+std::filesystem::absolute(argv[4]).wstring()+L"\" --reff-game=MHWILDS";
         STARTUPINFOW startup{sizeof(startup)};startup.dwFlags=STARTF_USESHOWWINDOW;startup.wShowWindow=SW_HIDE;
         if(!CreateProcessW(host.c_str(),command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&startup,&process))

@@ -34,10 +34,10 @@ v1.0.0 正式版默认面向全部 RE Engine 游戏，统一使用一个核心�
 
 可选：带备份的安装、旧版升级与恢复
 
-需要自动备份，或从旧 CEF 版升级时，可使用随包 PowerShell 安装器。退出游戏，将包解压到临时目录，再执行：
+需要自动备份或清理旧版散落文件时，另下载同版本的 `REFF-<版本>-tools.zip`。将核心包和工具包解压到同一临时目录，得到并排的 `reframework/` 和 `tools/`，退出游戏后执行：
 
 ```powershell
-& "<解压目录>\reframework\reff\tools\install-reff.ps1" -ReframeworkRoot "<游戏目录>\reframework"
+& "<解压目录>\tools\install-reff.ps1" -ReframeworkRoot "<游戏目录>\reframework"
 ```
 
 安装器校验文件并备份覆盖内容，保留用户设置、第三方插件和独立示例。对于旧引擎文件，只按旧清单清理归属明确且未被修改的文件；没有旧清单或文件已被修改时会保留。
@@ -45,12 +45,14 @@ v1.0.0 正式版默认面向全部 RE Engine 游戏，统一使用一个核心�
 如需恢复，退出游戏后执行：
 
 ```powershell
-& "<解压目录>\reframework\reff\tools\install-reff.ps1" -ReframeworkRoot "<游戏目录>\reframework" -RestoreBackup "<游戏目录>\reframework\data\REFF\backups\<备份名>"
+& "<解压目录>\tools\install-reff.ps1" -ReframeworkRoot "<游戏目录>\reframework" -RestoreBackup "<游戏目录>\reframework\data\REFF\backups\<备份名>"
 ```
 
 备份含旧版本，升级后的游戏目录可能暂时仍很大；确认不再需要恢复后再自行删除对应备份。
 
 ## 文件位置
+
+官方 Shell、公共 UI、版本和依赖信息内嵌在宿主 EXE 中，不需要磁盘上的 `reff/ui/`。插件继续通过原有 `reff://shell/shared/` 地址使用公共资源，第三方插件目录和数据位置不变。
 
 ```text
 reframework/data/REFF/settings.json  用户设置
@@ -91,4 +93,4 @@ reframework/data/REFF/backups/      安装事务备份；不属于 Runtime 分�
 
 ## 许可
 
-REFF 使用 [MIT License](LICENSE)。REFramework、WebView2 SDK、Vue、Element Plus、字体和图标等遵循各自许可，分发包内的 `reframework/reff/licenses/` 提供许可与 NOTICE 文本。Evergreen Runtime 由 Microsoft 单独分发。
+REFF 使用 [MIT License](LICENSE)。REFramework、WebView2 SDK、Vue、Element Plus、字体和图标等遵循各自许可，分发包内的 `reframework/reff/licenses/THIRD-PARTY-NOTICES.txt` 合并提供完整许可与 NOTICE 文本。Evergreen Runtime 由 Microsoft 单独分发。

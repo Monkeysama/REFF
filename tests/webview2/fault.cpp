@@ -20,7 +20,7 @@ Json scenario(const std::filesystem::path& host,const std::filesystem::path& out
     const auto cache=output/L"data"/L"REFF"/L"cache";
     std::filesystem::create_directories(cache);
     auto command=L"\""+host.wstring()+L"\" --selftest --reff-session="+session+L" --reff-cache=\""+cache.wstring()+L"\"";
-    command+=L" --reff-assets=\""+fixture_assets.wstring()+
+    command+=L" --selftest --reff-test-disk-shell --reff-assets=\""+fixture_assets.wstring()+
         L"\" --reff-manifests=\""+fixture_manifests.wstring()+L"\" --reff-game=MHWILDS";
     STARTUPINFOW startup{sizeof(startup)};startup.dwFlags=STARTF_USESHOWWINDOW;startup.wShowWindow=SW_HIDE;
     PROCESS_INFORMATION process{};

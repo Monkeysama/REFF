@@ -70,6 +70,16 @@ Json from_lua(lua_State* state, int index) {
 int decode_json(lua_State* state) { try { push_json(state, Json::parse(lua_tostring(state, 1))); return 1; } catch (...) { return luaL_error(state, "invalid JSON"); } }
 int encode_json(lua_State* state) { try { auto raw = from_lua(state, 1).dump(); lua_pushlstring(state, raw.data(), raw.size()); return 1; } catch (...) { return luaL_error(state, "invalid Lua value"); } }
 
+// 保存实际共享帧供人工检查，使用原始 BGRA，不另起浏览器或重绘测试页面。
+void save_capture(const std::filesystem::path& path,const std::vector<std::uint8_t>& pixels,int width,int height){
+    if(width<=0||height<=0||pixels.size()!=std::size_t(width)*height*4)throw std::runtime_error("capture dimensions invalid");
+    BITMAPFILEHEADER file{};file.bfType=0x4d42;file.bfOffBits=sizeof(file)+sizeof(BITMAPINFOHEADER);
+    file.bfSize=file.bfOffBits+static_cast<DWORD>(pixels.size());
+    BITMAPINFOHEADER info{sizeof(info)};info.biWidth=width;info.biHeight=-height;info.biPlanes=1;info.biBitCount=32;info.biCompression=BI_RGB;
+    std::ofstream output(path,std::ios::binary);output.write(reinterpret_cast<const char*>(&file),sizeof(file));
+    output.write(reinterpret_cast<const char*>(&info),sizeof(info));output.write(reinterpret_cast<const char*>(pixels.data()),pixels.size());
+    if(!output)throw std::runtime_error("capture write failed");
+}
 
 }
 // 真实 WebView2/Shell/三个前端示例 → IPC → 同源 Lua 调度器；测试进程只拥有自己的隐藏宿主。
@@ -101,7 +111,8 @@ int wmain(int argc,wchar_t** argv){
 
         const auto cache=fixture/L"data/REFF/cache";std::filesystem::create_directories(cache);
         auto command=L"\""+host.wstring()+L"\" --selftest --reff-session="+session+
-            L" --reff-assets=\""+(fixture/L"ui").wstring()+L"\" --reff-manifests=\""+(fixture/L"plugins").wstring()+
+            L" --reff-assets=\""+(fixture/L"outside").wstring()+L"\""+
+            L" --reff-test-script=\""+(fixture/L"ui/shared/p1-test.js").wstring()+L"\" --reff-manifests=\""+(fixture/L"plugins").wstring()+
             L"\" --reff-cache=\""+cache.wstring()+L"\" --reff-game=MHWILDS";
         Handle job(CreateJobObjectW(nullptr,nullptr));JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
         limits.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -181,6 +192,7 @@ int wmain(int argc,wchar_t** argv){
         for(const auto& handle:handles){const auto probe="return require('reff.sdk')._unsubscribe('"+handle+"')";
             if(luaL_dostring(state,probe.c_str()))throw std::runtime_error(lua_tostring(state,-1));
             if(lua_toboolean(state,-1))clean=false;lua_pop(state,1);}
+        save_capture(fixture/"shell.bmp",pixels,width,height);
         channel.send({{"type","shutdown"}});const bool graceful=WaitForSingleObject(process.get(),8000)==WAIT_OBJECT_0;
         channel.stop();lua_close(state);
         Json report={{"browser",result},{"frames",frames},{"width",width},{"height",height},{"generation",generation},
@@ -190,6 +202,7 @@ int wmain(int argc,wchar_t** argv){
         report["resetExecuted"]=reset_executed;report["noWriteReplay"]=no_replay;report["noParentPrivilegeBypass"]=no_proxy;
         report["passed"]=!result.is_null()&&result.value("passed",false)&&frames>=5&&clean&&graceful&&no_replay&&no_proxy;
         report["behaviorMode"]=behavior;
+        report["embeddedShell"]=true;
         report["hiddenInitializationPassed"]=prewarmed;
         if(behavior)report["passed"]=report["passed"].get<bool>()&&prewarmed;
         std::ofstream(fixture/"integration-summary.json")<<report.dump(2);

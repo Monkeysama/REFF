@@ -11,6 +11,8 @@ public:
     HostServices::Send send;
     std::function<void(const std::string&)> failure;
     bool self_test{},dev_enabled{};
+    bool test_disk_shell{};
+    std::string test_script;
     static void configure_options(ICoreWebView2EnvironmentOptions* options);
     void attach(ICoreWebView2* web,ICoreWebView2Environment* environment,std::string session,
                 std::filesystem::path assets,std::filesystem::path manifests,std::string game);

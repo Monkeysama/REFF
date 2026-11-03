@@ -18,6 +18,7 @@ target_compile_definitions(reff-webview2-host PRIVATE UNICODE _UNICODE NOMINMAX 
 target_compile_options(reff-webview2-host PRIVATE /utf-8 /EHsc /W4)
 target_link_libraries(reff-webview2-host PRIVATE "${WEBVIEW2_ROOT}/build/native/x64/WebView2LoaderStatic.lib"
   windowsapp d3d11 dxgi user32 ole32 shlwapi version shell32 CoreMessaging advapi32)
+include("${CMAKE_CURRENT_SOURCE_DIR}/embed_resources.cmake")
 
 if(BUILD_TESTING)
 # 独立自检使用与游戏插件相同提交的 Lua，不读取游戏进程；浏览器用隐藏 CompositionController。

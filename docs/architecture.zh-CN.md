@@ -137,16 +137,20 @@ reframework/
   plugins/REFF.dll
   autorun/REFF.lua
   autorun/reff/                  Lua SDK 与桥接模块
-  reff/ui/                       Shell 与公共前端资源
-  reff/runtime/                  reff-webview2-host.exe，不含系统 Runtime
+  reff/runtime/                  reff-webview2-host.exe，内嵌 Shell/公共资源/版本/依赖元数据
+  reff/licenses/THIRD-PARTY-NOTICES.txt  完整合并许可
+  reff/package.json              安装元数据
+  reff/package-manifest.json     文件完整性清单
   reff/plugins/<plugin-id>/      manifest 与插件网页资源
   data/REFF/log/                 REFF 专用诊断日志
 ```
 
 WebView2Loader 静态链接到宿主。用户数据目录为 `data/REFF/cache/webview2`，诊断为 `data/REFF/log/webview2`。安装包不包含系统 Runtime、缓存或历史备份。缺失依赖、旧系统、非稳定版及旧 Runtime 会被拒绝；实际最低环境的设备兼容性仍需对应机器验证。
 
+官方网页以 Windows RCDATA 保存在宿主模块中，直接返回资源字节，不落盘解压；`reff://shell/` 路由、MIME、CSP 和公共模块 URL 不变。插件资源仍从清单限定的磁盘根加载，并检查路径和重解析点。独立自检可显式使用固定测试页面，正式运行不会回退到磁盘 Shell。
+
 ## 9. 分发与升级
 
-默认 CMake 与 PowerShell 构建选择 WebView2，并启用 IME。仅发布统一正式核心包；全部 REFramework 游戏默认允许启用，游戏测试状态不作为准入开关。示例只保留源码及构建说明，不再发布示例包。每个核心包包含文件哈希清单、许可证、依赖版本、离线安装器及最小诊断工具。归档检查直接读取 ZIP，核对目录结构、逐文件哈希、后端排他性和 ≤30 MiB 的未压缩体积预算。
+默认 CMake 与 PowerShell 构建选择 WebView2，并启用 IME。全部 REFramework 游戏默认允许启用，游戏测试状态不作为准入开关。核心包只含运行所需的 DLL、宿主、三个 Lua 入口、合并许可和安装清单；安装器与最小诊断工具另提供可选工具包。示例保留源码及构建说明，不发布示例包。归档检查直接读取 ZIP，核对目录结构、逐文件哈希、后端排他性和 ≤30 MiB 的未压缩体积预算。
 
 安装器先校验包与目标，确认游戏已退出，再备份所有覆盖/清理项和旧清单。只删除旧清单中归属明确且内容未变的过期核心文件，保留用户设置、第三方插件、独立示例和已修改旧文件。失败回滚已触碰项；显式恢复使用同一游戏备份。备份不计入 REFF 分发体积，真实升级目录可能仍占用旧引擎空间。

@@ -1,4 +1,5 @@
 #include "runtime.hpp"
+#include "embedded.hpp"
 #include <shlwapi.h>
 #include <fstream>
 #include <iterator>
@@ -83,7 +84,10 @@ void WebViewRuntime::attach(ICoreWebView2* web,ICoreWebView2Environment* environ
     manifests_=std::move(manifests);game_=std::move(game);
     auto main=std::make_shared<Document>();main->main=true;main->id="main";initialize(main);documents_.push_back(main);
     EventRegistrationToken token{};
-    winrt::check_hresult(web_->AddScriptToExecuteOnDocumentCreated(bridge,
+    // 测试脚本只在显式独立自检中注入受控文档，不改写内嵌产物或插件公共接口。
+    auto script=std::wstring(bridge);
+    if(self_test&&!test_script.empty())script+=L";addEventListener('DOMContentLoaded',()=>{"+widen(test_script)+L"},{once:true});";
+    winrt::check_hresult(web_->AddScriptToExecuteOnDocumentCreated(script.c_str(),
         Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>([this](HRESULT result,LPCWSTR)->HRESULT{
             guard([&]{winrt::check_hresult(result);winrt::check_hresult(web_->Navigate(L"reff://shell/index.html"));});return S_OK;
         }).Get()));
@@ -184,15 +188,18 @@ void WebViewRuntime::message(const std::shared_ptr<Document>& doc,ICoreWebView2W
         post(d,std::move(response));}};
     doc->services.query(value["request"].dump(),std::move(reply));
 }
-// 同步读取有界本地文件；先检查清单根/重解析点，再返回 MIME/CSP。外部 URL 不送往网络。
+// 官方资源直接读取 EXE；插件仍受原来的磁盘根/重解析点边界约束，外部 URL 不送往网络。
 void WebViewRuntime::resource(ICoreWebView2WebResourceRequestedEventArgs* args){
     ComPtr<ICoreWebView2WebResourceRequest> request;winrt::check_hresult(args->get_Request(&request));
     LPWSTR raw{};winrt::check_hresult(request->get_Uri(&raw));const auto url=take(raw);
     LPWSTR method_raw{};winrt::check_hresult(request->get_Method(&method_raw));const auto method=take(method_raw);
     const auto& routes=documents_.front()->services;const auto route=routes.route_for_url(url);
-    const auto path=method=="GET"?routes.resource_path(url):std::nullopt;
     int status=403;std::string content,headers="Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n";
-    if(path){std::error_code error;const auto size=std::filesystem::file_size(*path,error);
+    if(method=="GET"&&route&&route->shell&&!(self_test&&test_disk_shell)){
+        if(const auto bytes=embedded_resource(route->relative_path)){
+            content.assign(*bytes);status=200;headers+="Content-Type: "+mime(route->relative_path)+"\r\n";
+        }
+    }else if(const auto path=method=="GET"?routes.resource_path(url):std::nullopt){std::error_code error;const auto size=std::filesystem::file_size(*path,error);
         if(!error&&size<=16*1024*1024){std::ifstream file(*path,std::ios::binary);content.assign(std::istreambuf_iterator<char>(file),{});
             if(file.good()||file.eof()){status=200;headers+="Content-Type: "+mime(*path)+"\r\n";}}}
     if(status==200&&route){

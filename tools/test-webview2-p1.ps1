@@ -21,12 +21,7 @@ foreach($pluginId in @('example.vue','example.react','example.html')) {
     Copy-Item -LiteralPath (Join-Path $source 'manifest.json') -Destination $destination
     Copy-Item -Path (Join-Path $source 'ui\dist\*') -Destination (Join-Path $destination 'ui\dist') -Recurse
 }
-$entries=@((Join-Path $ui 'index.html'))+@(Get-ChildItem -LiteralPath $plugins -Filter 'index.html' -File -Recurse | ForEach-Object FullName)
-foreach($entry in $entries){
-    $html=[IO.File]::ReadAllText($entry,[Text.Encoding]::UTF8)
-    $html=$html.Replace('</body>','<script src="reff://shell/shared/p1-test.js" defer></script></body>')
-    [IO.File]::WriteAllText($entry,$html,(New-Object Text.UTF8Encoding($false)))
-}
+# 测试脚本由独立宿主注入，Shell/公共资源使用实际 EXE 内嵌版本，不改写网页产物。
 # 故意放入可读取文件和 junction，验证逐级重解析点检查；这些链接仅属于全新夹具。
 [IO.File]::WriteAllText((Join-Path $fixture 'outside\version.json'),'{}')
 [IO.File]::WriteAllText((Join-Path $fixture 'outside\index.html'),'<html>outside</html>')

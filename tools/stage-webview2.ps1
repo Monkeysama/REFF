@@ -33,28 +33,37 @@ function Copy-ReleaseTree([string]$Source,[string]$Relative) {
 Copy-ReleaseFile (Join-Path $BuildRoot 'Release/REFF.dll') 'plugins/REFF.dll'
 Copy-ReleaseFile (Join-Path $BuildRoot 'Release/reff-webview2-host.exe') 'reff/runtime/reff-webview2-host.exe'
 foreach ($path in @('REFF.lua','reff/bridge.lua','reff/sdk.lua')) { Copy-ReleaseFile (Join-Path $repoRoot ('lua/'+$path)) ('autorun/'+$path) }
-Copy-ReleaseTree (Join-Path $repoRoot 'web/shell/dist') 'reff/ui'
-Copy-ReleaseFile (Join-Path $repoRoot 'version.json') 'reff/ui/version.json'
-Copy-ReleaseFile (Join-Path $repoRoot 'LICENSE') 'reff/licenses/REFF.txt'
-Copy-ReleaseFile (Join-Path $repoRoot '.deps/reframework/LICENSE') 'reff/licenses/REFramework.txt'
-Copy-ReleaseFile (Join-Path $repoRoot '.deps/webview2/LICENSE.txt') 'reff/licenses/WebView2.txt'
-Copy-ReleaseFile (Join-Path $repoRoot '.deps/webview2/NOTICE.txt') 'reff/licenses/WebView2-NOTICE.txt'
-# 收录锁定 Web 依赖的许可文本，不复制 node_modules 或依赖实现。
-$licenseFiles=@(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'web/shell/node_modules/.pnpm') -Recurse -File | Where-Object { $_.Name -match '^(LICENSE|LICENCE|NOTICE)(\..*)?$' })
+# 网页、版本和依赖来自实际构建 EXE，不再复制 ui/ 或外置锁文件。
+$infoFile=Join-Path $StagingRoot 'embedded-info.json'
+$hostFile=Join-Path $stageRoot 'reff/runtime/reff-webview2-host.exe'
+$process=Start-Process -FilePath $hostFile -ArgumentList ('--reff-resource-info="'+$infoFile+'"') -WindowStyle Hidden -PassThru
+$null=$process.Handle;$process.WaitForExit()
+if ($process.ExitCode -ne 0) { throw '无法读取宿主内嵌资源元数据' }
+$embedded=Get-Content -LiteralPath $infoFile -Raw -Encoding UTF8 | ConvertFrom-Json
+$expected=(Get-Content -LiteralPath (Join-Path $repoRoot 'version.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
+if (-not $embedded.embeddedShell -or $embedded.version.version -ne $expected) { throw '宿主内嵌网页版本不符，请重新构建原生宿主' }
+# 所有许可及 NOTICE 外置合并保留，方便离线阅读。
+$licenseFiles=@(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'web/shell/node_modules/.pnpm') -Recurse -File | Where-Object { $_.Name -match '^(LICENSE|LICENCE|NOTICE)(\..*)?$' } | Sort-Object FullName)
 if (-not $licenseFiles) { throw '缺少 Web 依赖许可；先安装锁定 pnpm 依赖' }
 $licenseText=New-Object Text.StringBuilder
+foreach ($pair in @(@('REFF','LICENSE'),@('REFramework','.deps/reframework/LICENSE'),@('WebView2','.deps/webview2/LICENSE.txt'),@('WebView2 NOTICE','.deps/webview2/NOTICE.txt'))) {
+    $null=$licenseText.AppendLine('===== '+$pair[0]+' =====').AppendLine([IO.File]::ReadAllText((Join-Path $repoRoot $pair[1]))).AppendLine()
+}
 foreach ($file in $licenseFiles) {
     $null=$licenseText.AppendLine($file.FullName.Substring($repoRoot.Length+1)).AppendLine([IO.File]::ReadAllText($file.FullName)).AppendLine()
 }
-[IO.File]::WriteAllText((Join-Path $stageRoot 'reff/licenses/Web-third-party.txt'),$licenseText.ToString(),(New-Object Text.UTF8Encoding($false)))
-$lock=Get-Content -LiteralPath (Join-Path $repoRoot 'dependencies.lock.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-[ordered]@{reframework=$lock.reframework;webview2=$lock.webview2;web=$lock.web} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $stageRoot 'reff/dependencies.lock.json') -Encoding utf8
-foreach ($tool in @('install-reff.ps1','package-files.ps1','collect-installed-compatibility.ps1')) { Copy-ReleaseFile (Join-Path $PSScriptRoot $tool) ('reff/tools/'+$tool) }
-Copy-ReleaseFile (Join-Path $repoRoot 'config/game-support.json') 'reff/tools/game-support.json'
-Copy-ReleaseFile (Join-Path $repoRoot 'README.md') 'reff/compatibility/README.zh-CN.md'
-Copy-ReleaseFile (Join-Path $repoRoot 'docs/compatibility.zh-CN.md') 'reff/compatibility/games.zh-CN.md'
+$notice=Resolve-REFFFile $stageRoot 'reff/licenses/THIRD-PARTY-NOTICES.txt'
+New-Item -ItemType Directory -Path (Split-Path $notice) -Force | Out-Null
+[IO.File]::WriteAllText($notice,$licenseText.ToString(),(New-Object Text.UTF8Encoding($false)))
+# 工具单独分发，与核心包解压目录并排，不进入游戏安装目录。
+$toolsRoot=Join-Path $StagingRoot 'tools'
+$null=Resolve-REFFFile $toolsRoot 'reff/package.json'
+New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
+foreach ($tool in @('install-reff.ps1','package-files.ps1','collect-installed-compatibility.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $tool) -Destination $toolsRoot -Force }
+Copy-Item -LiteralPath (Join-Path $repoRoot 'config/game-support.json') -Destination $toolsRoot -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'TOOLS-README.md') -Destination (Join-Path $toolsRoot 'README.md') -Force
 $version=(Get-Content -LiteralPath (Join-Path $repoRoot 'version.json') -Raw | ConvertFrom-Json).version
-[ordered]@{schemaVersion=1;backend='webview2';version=$version;supportScope='all-reframework-games';minimumWindowsBuild=19045;minimumRuntime='155.0.4283.62';runtimeDistribution='Evergreen shared stable';runtimeIncluded=$false;runtimeDownload='https://developer.microsoft.com/microsoft-edge/webview2/';manualGameValidation='pending';createdUtc=[DateTime]::UtcNow.ToString('o')} |
+[ordered]@{schemaVersion=1;backend='webview2';version=$version;embeddedShellVersion=$embedded.version.version;resources='embedded';supportScope='all-reframework-games';minimumWindowsBuild=19045;minimumRuntime='155.0.4283.62';runtimeDistribution='Evergreen shared stable';runtimeIncluded=$false;runtimeDownload='https://developer.microsoft.com/microsoft-edge/webview2/';manualGameValidation='pending';createdUtc=[DateTime]::UtcNow.ToString('o')} |
     ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $stageRoot 'reff/package.json') -Encoding utf8
 if ($IncludeExamples) {
     Copy-ReleaseFile (Join-Path $repoRoot 'examples/lua/REFF.examples.lua') 'autorun/REFF.examples.lua'

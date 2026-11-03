@@ -30,7 +30,8 @@ function Assert-SameFiles($Before,$After) {
     Assert-Fixture ($Before.Count -eq $After.Count) '恢复后文件数不符'
     foreach ($key in $Before.Keys) { Assert-Fixture ($After[$key] -eq $Before[$key]) "恢复后哈希不符：$key" }
 }
-$installer=Join-Path $SourceRoot 'reff/tools/install-reff.ps1'
+$toolsRoot=Join-Path (Split-Path $SourceRoot -Parent) 'tools'
+$installer=Join-Path $toolsRoot 'install-reff.ps1'
 $clean=New-InstallFixture 'clean'
 Put-FixtureFile $clean 'data/REFF/settings.json' '{"language":"en-US"}'
 Put-FixtureFile $clean 'reff/plugins/thirdparty/index.html' 'thirdparty'
@@ -55,6 +56,8 @@ $upgrade=New-InstallFixture 'cef-upgrade'
 foreach ($pair in @(
     @('plugins/REFF.dll','old-dll'),@('autorun/REFF.lua','old-lua'),@('reff/runtime/libcef.dll','cef'),
     @('reff/runtime/reff-host.exe','old-host'),@('reff/ui/assets/old.js','old-ui'),
+    @('reff/ui/shared/reff-ui.mjs','old-shared'),@('reff/ui/version.json','old-version'),
+    @('reff/tools/install-reff.ps1','old-tool'),@('reff/dependencies.lock.json','old-lock'),
     @('reff/runtime/user-modified.pak','original'),@('reff/licenses/CEF.txt','old-license'),
     @('reff/plugins/example.vue/manifest.json','example'),@('autorun/REFF.examples.lua','example-lua')
 )) { Put-FixtureFile $upgrade $pair[0] $pair[1] }
@@ -73,6 +76,9 @@ Remove-Item -LiteralPath (Join-Path $upgrade 'autorun/REFF.examples.lua')
 $before=Get-FixtureFiles $upgrade
 $result=& $installer -ReframeworkRoot $upgrade -SourceRoot $SourceRoot | ConvertFrom-Json
 Assert-Fixture (-not (Test-Path -LiteralPath (Join-Path $upgrade 'reff/runtime/libcef.dll'))) '旧 CEF 未清理'
+foreach ($obsolete in @('reff/ui/assets/old.js','reff/ui/shared/reff-ui.mjs','reff/ui/version.json','reff/tools/install-reff.ps1','reff/dependencies.lock.json')) {
+    Assert-Fixture (-not (Test-Path -LiteralPath (Join-Path $upgrade $obsolete))) "旧散落资源未清理：$obsolete"
+}
 Assert-Fixture ('reff/runtime/user-modified.pak' -in $result.preservedModified) '修改文件未保留'
 Assert-Fixture ((Get-FileHash -LiteralPath $third).Hash -eq $before['reff\plugins\thirdparty\index.html']) '第三方文件被修改'
 Assert-Fixture ((Get-FileHash -LiteralPath (Join-Path $upgrade 'reff/plugins/example.vue/manifest.json')).Hash -eq $before['reff\plugins\example.vue\manifest.json']) '独立示例被修改'
@@ -103,7 +109,7 @@ foreach ($bad in @('../plugins/REFF.dll','reff/runtime/../../other.dll','reff/ui
     Assert-Fixture $rejected "路径未拒绝：$bad"
 }
 $outside=Join-Path $fixture 'outside';New-Item -ItemType Directory -Path $outside | Out-Null
-New-Item -ItemType Junction -Path (Join-Path $rollback 'reff/ui') -Target $outside | Out-Null
+New-Item -ItemType Junction -Path (Join-Path $rollback 'reff/licenses') -Target $outside | Out-Null
 $rejected=$false;try { & $installer -ReframeworkRoot $rollback -SourceRoot $SourceRoot | Out-Null } catch { $rejected=$_.ToString() -match '重解析' }
 Assert-Fixture $rejected 'junction 未拒绝'
 # 诊断读取带敏感哨兵的假日志，只能输出白名单字段；不复制任意日志/输入内容。
@@ -111,7 +117,7 @@ $diagnostic=New-InstallFixture 'diagnostic'
 $null=& $installer -ReframeworkRoot $diagnostic -SourceRoot $SourceRoot
 Put-FixtureFile $diagnostic 'data/REFF/log/webview2/summary.json' '{"runtime":"155.0.4283.62","osBuild":26300,"publishedFrames":17,"error":"secret-input-sentinel","clipboard":"secret-input-sentinel"}'
 Put-FixtureFile $diagnostic 'data/REFF/log/compatibility.log' 'target=RE4 status=untested initialization=complete secret-input-sentinel'
-& (Join-Path $SourceRoot 'reff/tools/collect-installed-compatibility.ps1') -ReframeworkRoot $diagnostic | Out-Null
+& (Join-Path $toolsRoot 'collect-installed-compatibility.ps1') -ReframeworkRoot $diagnostic | Out-Null
 $diagnosticReport=Get-ChildItem -LiteralPath (Join-Path $diagnostic 'data/REFF/diagnostics') -Filter report.json -Recurse -File | Select-Object -First 1
 $safeText=[IO.File]::ReadAllText($diagnosticReport.FullName)
 Assert-Fixture (-not $safeText.Contains('secret-input-sentinel')) '诊断泄漏输入内容'

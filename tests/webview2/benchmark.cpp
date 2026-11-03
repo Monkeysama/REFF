@@ -25,7 +25,7 @@ int wmain(int argc,wchar_t** argv) {
         const auto cache=output/L"data"/L"REFF"/L"cache";std::filesystem::create_directories(cache);
         auto command=L"\""+host.wstring()+L"\" --reff-session="+session+L" --reff-cache=\""+cache.wstring()+L"\"";
         const auto plugins=output/L"plugins";std::filesystem::create_directories(plugins);
-        command+=L" --reff-assets=\""+assets.wstring()+L"\" --reff-manifests=\""+plugins.wstring()+L"\" --reff-game=MHWILDS";
+        command+=L" --selftest --reff-test-disk-shell --reff-assets=\""+assets.wstring()+L"\" --reff-manifests=\""+plugins.wstring()+L"\" --reff-game=MHWILDS";
         STARTUPINFOW startup{sizeof(startup)};startup.dwFlags=STARTF_USESHOWWINDOW;startup.wShowWindow=SW_HIDE;
         PROCESS_INFORMATION process{};
         if(!CreateProcessW(host.c_str(),command.data(),nullptr,nullptr,FALSE,CREATE_SUSPENDED|CREATE_NO_WINDOW,nullptr,nullptr,&startup,&process))throw std::runtime_error("benchmark host launch failed");

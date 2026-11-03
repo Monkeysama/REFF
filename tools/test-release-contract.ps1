@@ -23,10 +23,10 @@ if ($Archive) {
     $zip=[IO.Compression.ZipFile]::Open($broken,[IO.Compression.ZipArchiveMode]::Update)
     try {
         # Windows PowerShell Compress-Archive 可写入反斜杠；按归一化路径定位真实归档项。
-        $original=@($zip.Entries | Where-Object { $_.FullName.Replace('\','/') -eq 'reframework/reff/ui/index.html' })
-        if ($original.Count -ne 1) { throw '篡改夹具未找到唯一 Shell 入口' }
+        $original=@($zip.Entries | Where-Object { $_.FullName.Replace('\','/') -eq 'reframework/reff/runtime/reff-webview2-host.exe' })
+        if ($original.Count -ne 1) { throw '篡改夹具未找到唯一宿主入口' }
         $original[0].Delete()
-        $entry=$zip.CreateEntry('reframework/reff/ui/index.html')
+        $entry=$zip.CreateEntry('reframework/reff/runtime/reff-webview2-host.exe')
         $writer=New-Object IO.StreamWriter($entry.Open());try { $writer.Write('tampered') } finally { $writer.Dispose() }
     } finally { $zip.Dispose() }
     Assert-Rejected { & (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($broken) } 'changed zip content'
@@ -37,5 +37,30 @@ if ($Archive) {
         Assert-Rejected { & (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($badZip) } 'unsafe zip path'
     }
 }
-@{passed=$true;stableTagContract=$true;archiveChecked=[bool]$Archive;gameValidated=$false} |
+$toolsArchive=''
+if ($Archive) {
+    $candidate=Join-Path (Split-Path -Parent $Archive) (([IO.Path]::GetFileNameWithoutExtension($Archive))+'-tools.zip')
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $toolsArchive=$candidate }
+}
+if ($toolsArchive) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    & (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($toolsArchive) | Out-Null
+    # 缺失、夹带及越界条目分别验证，不能让一个更早的错误掩盖另一项拒绝条件。
+    foreach ($kind in @('missing','extra','path')) {
+        $broken=Join-Path $fixture ("REFF-$kind-tools.zip")
+        Copy-Item -LiteralPath $toolsArchive -Destination $broken
+        $zip=[IO.Compression.ZipFile]::Open($broken,[IO.Compression.ZipArchiveMode]::Update)
+        try {
+            if ($kind -eq 'missing') {
+                $entry=@($zip.Entries | Where-Object { $_.FullName.Replace('\','/') -eq 'tools/install-reff.ps1' })
+                $entry[0].Delete()
+            } else {
+                $name=if($kind -eq 'extra'){'tools/unexpected.exe'}else{'tools/../outside'}
+                $null=$zip.CreateEntry($name)
+            }
+        } finally { $zip.Dispose() }
+        Assert-Rejected { & (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($broken) } "invalid tools archive $kind"
+    }
+}
+@{passed=$true;stableTagContract=$true;archiveChecked=[bool]$Archive;toolsArchiveChecked=[bool]$toolsArchive;gameValidated=$false} |
     ConvertTo-Json | Tee-Object -FilePath (Join-Path $fixture 'summary.json')

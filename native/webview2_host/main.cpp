@@ -25,6 +25,7 @@
 #include <set>
 #include "keyboard.hpp"
 #include "runtime.hpp"
+#include "embedded.hpp"
 
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
@@ -46,6 +47,8 @@ public:
     std::filesystem::path cache_root;
     int result = 2;
     bool selftest=false;
+    bool test_disk_shell=false;
+    std::filesystem::path test_script;
     std::filesystem::path assets,manifests;
     std::string game;
     std::unique_ptr<reff::WebViewRuntime> runtime;
@@ -170,6 +173,12 @@ public:
         runtime->send=[this](json value){return channel.send(std::move(value));};
         runtime->failure=[this](const std::string& error){fail(error,E_FAIL);};
         runtime->self_test=selftest;
+        runtime->test_disk_shell=selftest&&test_disk_shell;
+        if(selftest&&!test_script.empty()){
+            if(std::filesystem::file_size(test_script)>1024*1024)throw std::runtime_error("test script too large");
+            std::ifstream file(test_script,std::ios::binary);
+            runtime->test_script.assign(std::istreambuf_iterator<char>(file),{});
+        }
         runtime->dev_enabled=reff::development_enabled(cache_root.parent_path().parent_path());
         event("development-mode",{{"enabled",runtime->dev_enabled}});
         runtime->attach(web.Get(),environment.Get(),reff::narrow(game_session),assets,manifests,game);
@@ -528,12 +537,24 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int) {
         else if(std::wstring(argv[i]).starts_with(L"--reff-cache=")) host.cache_root=std::filesystem::path(std::wstring(argv[i]).substr(13))/L"webview2";
     }
     for(int i=1;i<argc;++i){const std::wstring arg=argv[i];
+        // 只导出内嵌版本/依赖信息，不启动 WebView2；供构建、分发校验使用。
+        constexpr std::wstring_view info=L"--reff-resource-info=";
+        constexpr std::wstring_view script=L"--reff-test-script=";
+        if(arg.starts_with(info)){
+            const auto version=reff::embedded_resource("version.json"),dependencies=reff::embedded_resource("dependencies.lock.json");
+            if(!version||!dependencies||!reff::embedded_resource("index.html"))return 2;
+            std::ofstream output(std::filesystem::path(arg.substr(info.size())),std::ios::binary);
+            output<<json{{"version",json::parse(*version)},{"dependencies",json::parse(*dependencies)},{"embeddedShell",true}}.dump(2);
+            LocalFree(argv);return output.good()?0:2;
+        }
+        if(arg==L"--reff-test-disk-shell")host.test_disk_shell=true;
+        else if(arg.starts_with(script))host.test_script=arg.substr(script.size());
         if(arg.starts_with(L"--reff-assets="))host.assets=arg.substr(14);
         else if(arg.starts_with(L"--reff-manifests="))host.manifests=arg.substr(17);
         else if(arg.starts_with(L"--reff-game="))host.game=reff::narrow(arg.substr(12));
     }
     LocalFree(argv);
-    if(host.assets.empty()||host.manifests.empty()||host.game_session.empty())return 1;
+    if(host.manifests.empty()||host.game_session.empty())return 1;
     if(!host.game_session.empty()) {
         if(host.cache_root.empty())return 1;
         host.output=host.cache_root.parent_path().parent_path()/L"log"/
