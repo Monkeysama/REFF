@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '正式版本标签，必须匹配 version.json，例如 v1.0.0'
+        description: '正式版本标签，必须匹配 version.json，例如 v1.0.1'
         required: true
         type: string
       publish:
@@ -81,6 +81,7 @@ jobs:
         run: |
           .\tools\test-webview2-p1.ps1 -BuildRoot .\build-webview2-release
           .\tools\test-webview2-p1.ps1 -BuildRoot .\build-webview2-release -Behavior
+          .\tools\test-webview2-p1.ps1 -BuildRoot .\build-webview2-release -Layout
 
       - name: 生成并校验分发资产
         shell: pwsh

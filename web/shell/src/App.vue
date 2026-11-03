@@ -411,7 +411,7 @@ async function runSelfTest() {
     await nextTick();
     const uiVersion = await pluginReady;
     const bridgePassed = typeof marker === 'object' ? marker.passed === true : true;
-    await reff.call('test.finished', { passed: bridgePassed && uiVersion === '1.0.0', uiVersion });
+    await reff.call('test.finished', { passed: bridgePassed && uiVersion === reffVersion, uiVersion });
   } catch (error) {
     await reff.call('test.finished', { passed: false, error: String(error) }).catch(() => {});
     ElMessage.error(String(error));
