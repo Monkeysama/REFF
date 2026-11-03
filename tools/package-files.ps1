@@ -1,6 +1,6 @@
 ﻿# 分发、安装、恢复共用边界；只管理 REFF 文件，不认领用户设置或第三方插件。
 function Resolve-REFFFile([string]$Root,[string]$Relative) {
-    if ($Relative -notmatch '^(plugins/REFF\.dll|autorun/REFF(\.examples)?\.lua|autorun/reff/(bridge|sdk)\.lua|reff/(runtime|ui|licenses|tools|compatibility)/.+|reff/(dependencies\.lock|package|package-manifest|installed-manifest)\.json|reff/plugins/example\.(vue|react|html)/.+)$' -or
+    if ($Relative -notmatch '^(plugins/REFF\.dll|autorun/REFF(\.examples)?\.lua|autorun/reff/(bridge|sdk)\.lua|reff/(runtime|ui|licenses|tools|compatibility)/.+|reff/(reff-webview2-host\.exe|THIRD-PARTY-NOTICES\.txt)|reff/(dependencies\.lock|package|package-manifest|installed-manifest)\.json|reff/plugins/example\.(vue|react|html)/.+)$' -or
         $Relative -match '[\\:%<>"|?*#]' -or $Relative -match '(^|/)(\.|\.\.|)(/|$)' -or $Relative -match '[. ](/|$)') { throw "非 REFF 文件路径：$Relative" }
     $prefix=[IO.Path]::GetFullPath($Root).TrimEnd('\')+'\'
     $full=[IO.Path]::GetFullPath((Join-Path $Root $Relative))

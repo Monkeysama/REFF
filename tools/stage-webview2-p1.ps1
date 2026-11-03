@@ -25,7 +25,7 @@ function Copy-P1Tree([string]$Source,[string]$Relative){
     }
 }
 Copy-P1File 'build-webview2-p1-game/Release/REFF.dll' 'plugins/REFF.dll'
-Copy-P1File 'build-webview2-p1/Release/reff-webview2-host.exe' 'reff/runtime/reff-webview2-host.exe'
+Copy-P1File 'build-webview2-p1/Release/reff-webview2-host.exe' 'reff/reff-webview2-host.exe'
 Copy-P1File 'lua/REFF.lua' 'autorun/REFF.lua'
 Copy-P1File 'lua/reff/bridge.lua' 'autorun/reff/bridge.lua'
 Copy-P1File 'lua/reff/sdk.lua' 'autorun/reff/sdk.lua'

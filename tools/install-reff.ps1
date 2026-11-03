@@ -73,7 +73,7 @@ $package=Get-Content -LiteralPath (Resolve-REFFFile $source 'reff/package.json')
 if ($package.backend -ne 'webview2' -or $package.schemaVersion -ne 1) { throw '不是受支持的 WebView2 分发包' }
 $files=@(Read-REFFManifest (Resolve-REFFFile $source 'reff/package-manifest.json') $source -Verify)
 if ($files.path -contains 'reff/installed-manifest.json' -or $files.path -contains 'reff/package-manifest.json') { throw '分发清单不能包含安装状态或自身' }
-foreach ($required in @('plugins/REFF.dll','reff/runtime/reff-webview2-host.exe','reff/package.json','autorun/REFF.lua')) {
+foreach ($required in @('plugins/REFF.dll','reff/reff-webview2-host.exe','reff/package.json','autorun/REFF.lua')) {
     if ($required -notin $files.path) { throw "分发清单缺少必要文件：$required" }
 }
 $files+= [pscustomobject]@{path='reff/package-manifest.json';sha256=(Get-FileHash -LiteralPath (Join-Path $source 'reff/package-manifest.json')).Hash}
@@ -127,6 +127,16 @@ try {
         if ((Get-FileHash -LiteralPath $destination).Hash -ne $entry.sha256) { throw '安装后哈希不符' }
     }
     foreach ($path in $obsolete) { $touched.Add($path);Remove-Item -LiteralPath (Resolve-REFFFile $target $path) -Force }
+    # 只移除本次迁移已清空的旧目录；未知内容和用户修改文件保留，恢复按备份重建。
+    foreach ($legacy in @('runtime','licenses')) {
+        if (-not ($obsolete -match "^reff/$legacy/")) { continue }
+        $null=Resolve-REFFFile $target ("reff/$legacy/.empty-check")
+        $directory=Join-Path $target ("reff/$legacy")
+        if ((Test-Path -LiteralPath $directory -PathType Container) -and
+            -not (Get-ChildItem -LiteralPath $directory -Force | Select-Object -First 1)) {
+            Remove-Item -LiteralPath $directory -Force
+        }
+    }
     $touched.Add('reff/installed-manifest.json')
     ConvertTo-Json -InputObject @(@($files)+@($retained)) -Depth 8 | Set-Content -LiteralPath $installed -Encoding utf8
     $null=Read-REFFManifest $installed $target -Verify

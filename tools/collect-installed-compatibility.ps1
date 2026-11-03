@@ -16,7 +16,7 @@ function Assert-DiagnosticPath([string]$Path) {
 $metadata=Get-Content -LiteralPath (Resolve-REFFFile $target 'reff/package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $report=[ordered]@{schemaVersion=2;backend='webview2';collectedUtc=[DateTime]::UtcNow.ToString('o');operatingSystem=[Environment]::OSVersion.Version.ToString();gameValidated=$false}
 if ([string]$metadata.version -match '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { $report.packageVersion=[string]$metadata.version }
-foreach ($pair in @(@('reffDllSha256','plugins/REFF.dll'),@('hostSha256','reff/runtime/reff-webview2-host.exe'))) {
+foreach ($pair in @(@('reffDllSha256','plugins/REFF.dll'),@('hostSha256','reff/reff-webview2-host.exe'))) {
     $file=Resolve-REFFFile $target $pair[1]
     if (Test-Path -LiteralPath $file -PathType Leaf) { $report[$pair[0]]=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() }
 }

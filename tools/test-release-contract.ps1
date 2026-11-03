@@ -23,13 +23,21 @@ if ($Archive) {
     $zip=[IO.Compression.ZipFile]::Open($broken,[IO.Compression.ZipArchiveMode]::Update)
     try {
         # Windows PowerShell Compress-Archive 可写入反斜杠；按归一化路径定位真实归档项。
-        $original=@($zip.Entries | Where-Object { $_.FullName.Replace('\','/') -eq 'reframework/reff/runtime/reff-webview2-host.exe' })
+        $original=@($zip.Entries | Where-Object { $_.FullName.Replace('\','/') -eq 'reframework/reff/reff-webview2-host.exe' })
         if ($original.Count -ne 1) { throw '篡改夹具未找到唯一宿主入口' }
         $original[0].Delete()
-        $entry=$zip.CreateEntry('reframework/reff/runtime/reff-webview2-host.exe')
+        $entry=$zip.CreateEntry('reframework/reff/reff-webview2-host.exe')
         $writer=New-Object IO.StreamWriter($entry.Open());try { $writer.Write('tampered') } finally { $writer.Dispose() }
     } finally { $zip.Dispose() }
     Assert-Rejected { & (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($broken) } 'changed zip content'
+    # 目录回归分别覆盖宿主和许可；不允许旧两级路径重新混入正式包。
+    foreach ($nested in @('runtime/reff-webview2-host.exe','licenses/THIRD-PARTY-NOTICES.txt')) {
+        $nestedZip=Join-Path $fixture ('nested-'+[Guid]::NewGuid().ToString('N')+'.zip')
+        Copy-Item -LiteralPath $Archive -Destination $nestedZip
+        $zip=[IO.Compression.ZipFile]::Open($nestedZip,[IO.Compression.ZipArchiveMode]::Update)
+        try { $null=$zip.CreateEntry('reframework/reff/'+$nested) } finally { $zip.Dispose() }
+        Assert-Rejected { & (Join-Path $PSScriptRoot 'verify-release.ps1') -Archives @($nestedZip) } "nested core path $nested"
+    }
     foreach ($unsafe in @('reframework/../outside','reframework/reff/ui/./a','reframework/reff/ui/a:stream','reframework/reff/ui/%2e%2e/a','reframework/reff/ui/a.')) {
         $badZip=Join-Path $fixture ('bad-'+[Guid]::NewGuid().ToString('N')+'.zip')
         $zip=[IO.Compression.ZipFile]::Open($badZip,[IO.Compression.ZipArchiveMode]::Create)

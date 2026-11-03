@@ -55,6 +55,9 @@ v1.0.0 正式版默认面向全部 RE Engine 游戏，统一使用一个核心�
 官方 Shell、公共 UI、版本和依赖信息内嵌在宿主 EXE 中，不需要磁盘上的 `reff/ui/`。插件继续通过原有 `reff://shell/shared/` 地址使用公共资源，第三方插件目录和数据位置不变。
 
 ```text
+reframework/reff/reff-webview2-host.exe  独立网页宿主
+reframework/reff/THIRD-PARTY-NOTICES.txt  完整合并许可
+reframework/reff/plugins/<plugin-id>/  插件清单与网页资源
 reframework/data/REFF/settings.json  用户设置
 reframework/data/REFF/cache/webview2/  WebView2 临时缓存，可在退出游戏后清理
 reframework/data/REFF/log/          REFF 专用诊断日志
@@ -93,4 +96,4 @@ reframework/data/REFF/backups/      安装事务备份；不属于 Runtime 分�
 
 ## 许可
 
-REFF 使用 [MIT License](LICENSE)。REFramework、WebView2 SDK、Vue、Element Plus、字体和图标等遵循各自许可，分发包内的 `reframework/reff/licenses/THIRD-PARTY-NOTICES.txt` 合并提供完整许可与 NOTICE 文本。Evergreen Runtime 由 Microsoft 单独分发。
+REFF 使用 [MIT License](LICENSE)。REFramework、WebView2 SDK、Vue、Element Plus、字体和图标等遵循各自许可，分发包内的 `reframework/reff/THIRD-PARTY-NOTICES.txt` 合并提供完整许可与 NOTICE 文本。Evergreen Runtime 由 Microsoft 单独分发。

@@ -40,9 +40,26 @@ $before=Get-FixtureFiles $clean
 $result=& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -ReframeworkRoot $clean | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw '随包安装器 -File 入口失败' }
 $null=Read-REFFManifest (Join-Path $clean 'reff/installed-manifest.json') $clean -Verify
+Assert-Fixture (Test-Path -LiteralPath (Join-Path $clean 'reff/reff-webview2-host.exe') -PathType Leaf) '扁平宿主未安装'
+Assert-Fixture (Test-Path -LiteralPath (Join-Path $clean 'reff/THIRD-PARTY-NOTICES.txt') -PathType Leaf) '扁平许可未安装'
+Assert-Fixture (-not (Test-Path -LiteralPath (Join-Path $clean 'reff/runtime'))) '新安装残留 runtime 目录'
+Assert-Fixture (-not (Test-Path -LiteralPath (Join-Path $clean 'reff/licenses'))) '新安装残留 licenses 目录'
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -ReframeworkRoot $clean -RestoreBackup $result.backup | Out-Null
 if ($LASTEXITCODE -ne 0) { throw '随包恢复 -File 入口失败' }
 Assert-SameFiles $before (Get-FixtureFiles $clean)
+# 上一版内嵌资源布局迁移到根目录，删除已清空的目录；事务恢复须还原旧入口和许可。
+$nested=New-InstallFixture 'nested-webview2-upgrade'
+Put-FixtureFile $nested 'reff/runtime/reff-webview2-host.exe' 'old-webview2-host'
+Put-FixtureFile $nested 'reff/licenses/THIRD-PARTY-NOTICES.txt' 'old-merged-license'
+$null=Write-REFFManifest $nested (Join-Path $nested 'reff/installed-manifest.json')
+$nestedBefore=Get-FixtureFiles $nested
+$nestedResult=& $installer -ReframeworkRoot $nested -SourceRoot $SourceRoot | ConvertFrom-Json
+foreach ($legacy in @('runtime','licenses')) {
+    Assert-Fixture (-not (Test-Path -LiteralPath (Join-Path $nested "reff/$legacy"))) "旧空目录未清理：$legacy"
+}
+$null=Read-REFFManifest (Join-Path $nested 'reff/installed-manifest.json') $nested -Verify
+& $installer -ReframeworkRoot $nested -RestoreBackup $nestedResult.backup | Out-Null
+Assert-SameFiles $nestedBefore (Get-FixtureFiles $nested)
 # 已知但未测试游戏与目录外新目标均能安装、恢复；夹具 EXE 是文本且从不运行。
 foreach ($exe in @('DevilMayCry5.exe','FutureREGame.exe')) {
     $generic=New-InstallFixture ('all-games-'+$exe) $exe
@@ -109,8 +126,11 @@ foreach ($bad in @('../plugins/REFF.dll','reff/runtime/../../other.dll','reff/ui
     Assert-Fixture $rejected "路径未拒绝：$bad"
 }
 $outside=Join-Path $fixture 'outside';New-Item -ItemType Directory -Path $outside | Out-Null
-New-Item -ItemType Junction -Path (Join-Path $rollback 'reff/licenses') -Target $outside | Out-Null
-$rejected=$false;try { & $installer -ReframeworkRoot $rollback -SourceRoot $SourceRoot | Out-Null } catch { $rejected=$_.ToString() -match '重解析' }
+$junction=New-InstallFixture 'junction'
+# 此夹具的 reff 是刚建立的空目录；不递归删除任何已有安装内容。
+Remove-Item -LiteralPath (Join-Path $junction 'reff')
+New-Item -ItemType Junction -Path (Join-Path $junction 'reff') -Target $outside | Out-Null
+$rejected=$false;try { & $installer -ReframeworkRoot $junction -SourceRoot $SourceRoot | Out-Null } catch { $rejected=$_.ToString() -match '重解析' }
 Assert-Fixture $rejected 'junction 未拒绝'
 # 诊断读取带敏感哨兵的假日志，只能输出白名单字段；不复制任意日志/输入内容。
 $diagnostic=New-InstallFixture 'diagnostic'
@@ -123,5 +143,6 @@ $safeText=[IO.File]::ReadAllText($diagnosticReport.FullName)
 Assert-Fixture (-not $safeText.Contains('secret-input-sentinel')) '诊断泄漏输入内容'
 $safeReport=$safeText | ConvertFrom-Json
 Assert-Fixture ($safeReport.host.runtime -eq '155.0.4283.62' -and $safeReport.host.publishedFrames -eq 17 -and $safeReport.native.target -eq 'RE4') '诊断未收集规定字段'
+Assert-Fixture ($safeReport.hostSha256 -eq (Get-FileHash -LiteralPath (Join-Path $diagnostic 'reff/reff-webview2-host.exe')).Hash.ToLowerInvariant()) '诊断未找到扁平宿主'
 [ordered]@{passed=$true;allGameInstall=$true;genericTargetInstall=$true;cleanInstall=$true;powershell51FileEntry=$true;cefUpgrade=$true;restoreHashes=$true;preserveSettingsAndThirdParty=$true;preserveModified=$true;preserveChangedOrMissingExamples=$true;rollback=$true;pathAndJunctionRejected=$true;diagnosticsAllowlist=$true;gameValidated=$false;fixture=$fixture} |
     ConvertTo-Json | Tee-Object -FilePath (Join-Path $fixture 'summary.json')

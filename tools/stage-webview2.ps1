@@ -31,11 +31,11 @@ function Copy-ReleaseTree([string]$Source,[string]$Relative) {
     }
 }
 Copy-ReleaseFile (Join-Path $BuildRoot 'Release/REFF.dll') 'plugins/REFF.dll'
-Copy-ReleaseFile (Join-Path $BuildRoot 'Release/reff-webview2-host.exe') 'reff/runtime/reff-webview2-host.exe'
+Copy-ReleaseFile (Join-Path $BuildRoot 'Release/reff-webview2-host.exe') 'reff/reff-webview2-host.exe'
 foreach ($path in @('REFF.lua','reff/bridge.lua','reff/sdk.lua')) { Copy-ReleaseFile (Join-Path $repoRoot ('lua/'+$path)) ('autorun/'+$path) }
 # 网页、版本和依赖来自实际构建 EXE，不再复制 ui/ 或外置锁文件。
 $infoFile=Join-Path $StagingRoot 'embedded-info.json'
-$hostFile=Join-Path $stageRoot 'reff/runtime/reff-webview2-host.exe'
+$hostFile=Join-Path $stageRoot 'reff/reff-webview2-host.exe'
 $process=Start-Process -FilePath $hostFile -ArgumentList ('--reff-resource-info="'+$infoFile+'"') -WindowStyle Hidden -PassThru
 $null=$process.Handle;$process.WaitForExit()
 if ($process.ExitCode -ne 0) { throw '无法读取宿主内嵌资源元数据' }
@@ -52,7 +52,7 @@ foreach ($pair in @(@('REFF','LICENSE'),@('REFramework','.deps/reframework/LICEN
 foreach ($file in $licenseFiles) {
     $null=$licenseText.AppendLine($file.FullName.Substring($repoRoot.Length+1)).AppendLine([IO.File]::ReadAllText($file.FullName)).AppendLine()
 }
-$notice=Resolve-REFFFile $stageRoot 'reff/licenses/THIRD-PARTY-NOTICES.txt'
+$notice=Resolve-REFFFile $stageRoot 'reff/THIRD-PARTY-NOTICES.txt'
 New-Item -ItemType Directory -Path (Split-Path $notice) -Force | Out-Null
 [IO.File]::WriteAllText($notice,$licenseText.ToString(),(New-Object Text.UTF8Encoding($false)))
 # 工具单独分发，与核心包解压目录并排，不进入游戏安装目录。

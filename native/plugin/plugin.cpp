@@ -879,7 +879,7 @@ void service_loop(std::stop_token stop) {
                 runtime->frame.store(frame);
                 { std::lock_guard lock(runtime->request_mutex); runtime->seen.clear(); runtime->requests.clear(); }
                 runtime->channel.start(runtime->session, true, receive);
-                auto directory = runtime->root / L"reff" / L"runtime";
+                auto directory = runtime->root / L"reff";
                 auto executable = directory / L"reff-webview2-host.exe";
                 auto assets = runtime->root / L"reff" / L"ui";
                 auto manifests = runtime->root / L"reff" / L"plugins";

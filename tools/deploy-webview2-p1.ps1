@@ -54,4 +54,4 @@ $manifest=@(foreach($relative in ($owned.Keys | Sort-Object)){
 $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $installed -Encoding utf8
 [pscustomobject]@{backend='webview2-p1';game=$game.target;backup=$backup;files=$files} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $backup 'deployment.json') -Encoding utf8
 Write-Output "P1 已部署并逐文件核对哈希；备份：$backup"
-$files | Where-Object path -in @('plugins/REFF.dll','reff/runtime/reff-webview2-host.exe') | Select-Object path,sha256
+$files | Where-Object path -in @('plugins/REFF.dll','reff/reff-webview2-host.exe') | Select-Object path,sha256

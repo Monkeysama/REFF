@@ -93,7 +93,7 @@ if ($Mode -eq 'Report') {
 
 # PID 与启动时间共同识别进程，避免重启或 PID 复用产生错误 CPU 差分。
 # 目标进程从 reframework 父目录的已支持游戏识别；无游戏运行时保留空样本。
-if (-not $RuntimeDirectory) { $RuntimeDirectory = Join-Path $ReframeworkRoot 'reff\runtime' }
+if (-not $RuntimeDirectory) { $RuntimeDirectory = Join-Path $ReframeworkRoot 'reff' }
 $runtimePrefix = [IO.Path]::GetFullPath($RuntimeDirectory).TrimEnd('\') + '\'
 $gameRoot = Split-Path $ReframeworkRoot -Parent
 $gameEntry = Find-REFFGame $repoRoot $gameRoot @('tested', 'untested')

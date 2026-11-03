@@ -28,11 +28,13 @@ foreach ($archive in $Archives) {
         & {
             foreach ($name in $files.Keys) {
                 if ($name -match '^reframework/(autorun/REFF\.examples\.lua|reff/(plugins/|examples-dev/|ui/|tools/|compatibility/|dependencies\.lock\.json$))' -or
-                    ($name -match '^reframework/reff/runtime/' -and $name -ne 'reframework/reff/runtime/reff-webview2-host.exe')) { throw "Runtime 包混入旧后端或示例：$name" }
+                    $name -match '^reframework/reff/(runtime|licenses)/') { throw "Runtime 包混入旧后端或示例：$name" }
             }
-            foreach ($required in @('plugins/REFF.dll','reff/runtime/reff-webview2-host.exe','autorun/REFF.lua','autorun/reff/bridge.lua','autorun/reff/sdk.lua','reff/package.json','reff/package-manifest.json','reff/licenses/THIRD-PARTY-NOTICES.txt')) {
+            $coreFiles=@('plugins/REFF.dll','reff/reff-webview2-host.exe','autorun/REFF.lua','autorun/reff/bridge.lua','autorun/reff/sdk.lua','reff/package.json','reff/package-manifest.json','reff/THIRD-PARTY-NOTICES.txt')
+            foreach ($required in $coreFiles) {
                 if (-not $files.ContainsKey('reframework/'+$required)) { throw "缺少关键文件：$required" }
             }
+            if ($files.Count -ne $coreFiles.Count) { throw '核心包包含非约定文件或嵌套目录内容' }
             if ($total -gt 30MB -or (1-$total/(402MB)) -lt .9) { throw 'Runtime 分发体积超标' }
             function Read-ZipText([string]$Name) {
                 $reader=New-Object IO.StreamReader($files['reframework/'+$Name].Open())

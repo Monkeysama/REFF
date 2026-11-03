@@ -137,8 +137,8 @@ reframework/
   plugins/REFF.dll
   autorun/REFF.lua
   autorun/reff/                  Lua SDK 与桥接模块
-  reff/runtime/                  reff-webview2-host.exe，内嵌 Shell/公共资源/版本/依赖元数据
-  reff/licenses/THIRD-PARTY-NOTICES.txt  完整合并许可
+  reff/reff-webview2-host.exe     内嵌 Shell/公共资源/版本/依赖元数据
+  reff/THIRD-PARTY-NOTICES.txt     完整合并许可
   reff/package.json              安装元数据
   reff/package-manifest.json     文件完整性清单
   reff/plugins/<plugin-id>/      manifest 与插件网页资源
