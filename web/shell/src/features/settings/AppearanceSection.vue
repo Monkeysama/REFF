@@ -40,7 +40,7 @@ function changeColor(key: 'accent' | 'background' | 'surface', value: string | n
 </script>
 
 <template>
-  <section class="settings-section">
+  <section class="settings-section appearance-section">
     <h2>{{ t('appearance') }}</h2>
     <div class="setting-row setting-row-stack">
       <span class="setting-label">{{ t('theme') }}</span>

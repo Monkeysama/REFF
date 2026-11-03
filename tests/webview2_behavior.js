@@ -59,10 +59,10 @@
   await batch([key('down',75,4),key('up',75,4),key('up',17)]);await wait(()=>document.querySelector('kbd')?.textContent==='Ctrl + K','hotkey Ctrl+K');
   document.querySelector('.hotkey-action').click();await pause(80);await batch([key('down',135),key('up',135)]);await wait(()=>document.querySelector('kbd')?.textContent==='F24','hotkey F24');
   document.querySelector('.hotkey-action').click();await pause(80);await batch([key('down',186,4),key('up',186,4)]);await wait(()=>document.querySelector('kbd')?.textContent==='Ctrl + ;','punctuation hotkey');
-  const sliders=[...document.querySelectorAll('.el-slider__button-wrapper')];check(sliders.length===4,'appearance sliders');
+  const sliders=[...document.querySelectorAll('.appearance-section .el-slider__button-wrapper')];check(sliders.length===4,'appearance sliders');
   for(const slider of sliders){slider.focus();await batch([key('down',35),key('up',35)]);await pause(120);}
   await wait(()=>getComputedStyle(document.documentElement).getPropertyValue('--reff-text-scale').trim()==='1.4','text scaling');
-  const switches=[...document.querySelectorAll('.el-switch')];check(switches.length>=4,'settings switches missing');switches[0].click();switches[1].click();switches[2].click();await pause(400);
+  const switches=[document.querySelector('.general-section .el-switch'),...document.querySelectorAll('.input-section .el-switch')];check(switches.every(Boolean),'settings switches missing');switches.forEach(e=>e.click());await pause(400);
   let settings=await call('reff.settings.get');check(settings.language==='en-US'&&settings.appearance.preset==='ocean'&&!settings.startup.preload&&settings.input.mousePassthrough&&settings.input.keyboardPassthrough,'settings patch serialization');
   check(settings.appearance.backgroundOpacity===1&&settings.appearance.cornerRadius===16&&settings.appearance.surfaceBlur===32&&settings.appearance.textScale===1.4,'appearance persistence');
   await call('test.finished',{checkpoint:'settings-reopen'});await pause(150);settings=await call('reff.settings.get');check(settings.window.geometry?.width===960,'settings geometry persistence');
@@ -73,7 +73,7 @@
   const childInput=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('child input timeout')),10000);const listener=e=>{if(e.source!==document.querySelector('iframe')?.contentWindow||e.data?.type!=='p2-child-input')return;clearTimeout(timer);removeEventListener('message',listener);resolve(e.data);};addEventListener('message',listener);});
   const iframe=document.querySelector('iframe'),frameRect=iframe.getBoundingClientRect();
   iframe.contentWindow.postMessage({type:'p2-input',offset:{x:frameRect.left,y:frameRect.top}},'*');const child=await childInput;check(child.passed,child.error);
-  document.querySelector('.el-menu-item').click();await wait(()=>!document.querySelector('iframe'),'iframe cleanup');document.querySelector('.settings-panel footer button').click();
+  document.querySelector('.el-menu-item').click();await wait(()=>!document.querySelector('iframe'),'iframe cleanup');await wait(()=>!document.querySelector('.settings-panel footer button')?.disabled,'navigation save completed');document.querySelector('.settings-panel footer button').click();
   await wait(()=>document.querySelector('kbd')?.textContent==='F8','restore defaults');const defaults=await call('reff.settings.get');check(defaults.language==='zh-CN'&&defaults.startup.preload&&!defaults.input.keyboardPassthrough&&!defaults.window.geometry,'default reset');
   await call('test.finished',{passed:true,settings:true,persistence:true,geometry:true,themeAndLanguage:true,modifierOnlyCaptureIgnored:true,hotkeys:['Ctrl+Shift+K','Ctrl+K','F24','Ctrl+;'],mainAndFrameInput:true,focusRelease:true,hiddenResume:true,hotReloadDocuments:reports,clipboardAndSystemImeValidated:false});
  }catch(error){await call('test.finished',{passed:false,error:String(error.stack||error),reports});}

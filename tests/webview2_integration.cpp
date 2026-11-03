@@ -1,5 +1,6 @@
 #include "frame.hpp"
 #include "settings.hpp"
+#include "window_regions.hpp"
 #include <lua.hpp>
 #include <filesystem>
 #include <fstream>
@@ -128,13 +129,17 @@ int wmain(int argc,wchar_t** argv){
         if(!settings_error.empty())throw std::runtime_error(settings_error);
         const auto begun=GetTickCount64();Json result;std::set<std::string> handles;std::vector<Json> requests;
         bool reset_armed=false,reset_executed=false,prewarmed=false;std::string invalidated_request;
-        std::uint64_t sequence{},generation{};std::vector<std::uint8_t> pixels;int width{},height{},frames{};
+        std::uint64_t sequence{},generation{};std::vector<std::uint8_t> pixels;int width{},height{},frames{},layout_captures{};
         std::ofstream diagnostics(fixture/"diagnostics.jsonl");
+        WindowRegions drag_regions;
         while(GetTickCount64()-begun<60000){
             while(auto message=wire.pop()){
                 const auto type=message->value("type",std::string{});
                 if(type=="hello"){channel.send({{"type","ready"},{"ready",true},{"epoch",1}});
                     channel.send({{"type","visible"},{"value",!behavior}});channel.send({{"type","viewport"},{"width",960},{"height",640},{"generation",1}});}
+                else if(type=="window_regions"){
+                    if(const auto parsed=WindowRegions::parse((*message)["regions"]))drag_regions=*parsed;
+                }
                 else if(type=="request"){
                     requests.push_back(*message);const auto method=message->value("method",std::string{});
                     if(reset_armed&&method=="example.vue.refresh"){
@@ -159,7 +164,17 @@ int wmain(int argc,wchar_t** argv){
                     else {if(method=="ui.subscribe")handles.insert((*message)["params"]["subscriptionId"].get<std::string>());incoming.push(std::move(*message));}
                 }else if(type=="test_result"){
                     const auto checkpoint=(*message)["result"].value("checkpoint",std::string{});
-                    if(behavior&&checkpoint=="input"){
+                    if(behavior&&checkpoint=="layout-capture"){
+                        const auto index=(*message)["result"].value("index",-1);
+                        if(index<0||index>20)throw std::runtime_error("invalid test capture index");
+                        if (frame.read(pixels,sequence,width,height,generation)) ++frames;
+                        save_capture(fixture/("layout-"+std::to_string(index)+".bmp"),pixels,width,height);
+                        ++layout_captures;
+                        for(const auto& point:(*message)["result"]["points"]){
+                            if(drag_regions.contains(point["x"],point["y"],width,height)!=point["drag"].get<bool>())
+                                throw std::runtime_error("Shell/native drag hit region mismatch");
+                        }
+                    }else if(behavior&&checkpoint=="input"){
                         // 只向本驱动 Job 内的隐藏宿主发消息；测试批次不接触系统/游戏输入或剪贴板。
                         for(const auto& input:(*message)["result"]["messages"])channel.send(input);
                     }else if(behavior&&checkpoint=="marker"){
@@ -200,7 +215,10 @@ int wmain(int argc,wchar_t** argv){
         const bool no_replay=behavior||(reset_executed&&std::count_if(requests.begin(),requests.end(),[&](const auto& value){return value["id"]==invalidated_request;})==1);
         const bool no_proxy=behavior||std::none_of(requests.begin(),requests.end(),[](const auto& value){return value["method"]=="reff.settings.reset";});
         report["resetExecuted"]=reset_executed;report["noWriteReplay"]=no_replay;report["noParentPrivilegeBypass"]=no_proxy;
-        report["passed"]=!result.is_null()&&result.value("passed",false)&&frames>=5&&clean&&graceful&&no_replay&&no_proxy;
+        // 新布局夹具检验静态截图与命中点；核心/输入回归仍保留至少五帧的连续交付要求。
+        const bool output_valid = result.contains("layoutPhase") ? layout_captures > 0 && frames > 0 : frames >= 5;
+        report["layoutCaptures"] = layout_captures;
+        report["passed"]=!result.is_null()&&result.value("passed",false)&&output_valid&&clean&&graceful&&no_replay&&no_proxy;
         report["behaviorMode"]=behavior;
         report["embeddedShell"]=true;
         report["hiddenInitializationPassed"]=prewarmed;

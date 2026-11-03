@@ -8,6 +8,8 @@ export type ReffSettings = {
   startup: {
     preload: boolean;
   };
+  layout: { sidebarCollapsed: boolean; headerCollapsed: boolean; pluginPadding: number };
+  navigation: { rememberLastPlugin: boolean; lastPluginId: string };
   input: {
     mousePassthrough: boolean;
     keyboardPassthrough: boolean;
@@ -30,6 +32,8 @@ export type SettingsPatch = {
   hotkey?: Partial<ReffSettings['hotkey']>;
   appearance?: Partial<ReffAppearance>;
   startup?: Partial<ReffSettings['startup']>;
+  layout?: Partial<ReffSettings['layout']>;
+  navigation?: Partial<ReffSettings['navigation']>;
   input?: Partial<ReffSettings['input']>;
   window?: Pick<Partial<ReffSettings['window']>, 'rememberGeometry'>;
 };

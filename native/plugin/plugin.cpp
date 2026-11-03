@@ -7,6 +7,7 @@
 #include "host_health.hpp"
 #include "mouse_click.hpp"
 #include "settings.hpp"
+#include "window_regions.hpp"
 #include "keyboard_capture.hpp"
 #include "keyboard_event.hpp"
 #include "game_profile.hpp"
@@ -100,6 +101,8 @@ struct Runtime {
     std::atomic_bool panel_dragging{};
     // 面板几何的写入来自窗口线程，读取来自 Present 线程；用同一把锁提交完整矩形，避免单轴调整读到中间状态。
     std::mutex panel_geometry_mutex;
+    // IPC 写入、窗口线程读取；和面板几何共用锁，避免折叠时命中旧的固定标题高度。
+    WindowRegions window_regions;
     // W2 尺寸调整状态；输入线程写入请求，Present 线程负责裁剪并提交显示矩形。
     std::atomic_int panel_resize_edges{};
     std::atomic_int resize_cursor_mode{};
@@ -423,8 +426,7 @@ bool begin_panel_drag(int x, int y) {
     std::lock_guard geometry_lock(runtime->panel_geometry_mutex);
     const int left = runtime->left.load(), top = runtime->top.load();
     const int right = runtime->right.load(), bottom = runtime->bottom.load();
-    const int titlebar_height = std::max(24, (bottom - top) * 56 / std::max(1, runtime->viewport_height.load()));
-    if (right <= left || bottom <= top || x < left || x >= right || y < top || y >= top + titlebar_height) return false;
+    if (!runtime->window_regions.contains(x-left,y-top,right-left,bottom-top)) return false;
     runtime->panel_dragging = true;
     // 命中测试已使用当前已绘制矩形；从此刻起位置由拖动状态拥有，避免首帧初始化覆盖拖动坐标。
     runtime->panel_position_initialized.store(true, std::memory_order_release);
@@ -757,6 +759,7 @@ void receive(Json value) {
         if (type == "hello") {
             if (value.value("protocol", 0u) != protocol_version || value.value("sessionId", std::string{}) != narrow(runtime->session)) return;
             runtime->connected = true;
+            { std::lock_guard lock(runtime->panel_geometry_mutex); runtime->window_regions = {}; }
             compatibility_log("host handshake=ok protocol=" + std::to_string(protocol_version));
             // 新宿主从默认视口启动，必须重新发送保留的窗口尺寸与代次。
             runtime->channel.send({{"type", "viewport"}, {"width", runtime->viewport_width.load()},
@@ -766,6 +769,13 @@ void receive(Json value) {
             runtime->channel.send({{"type", "visible"}, {"value", runtime->visible.load()}}); return;
         }
         if (!runtime->connected) return;
+        if (type == "window_regions") {
+            if (value.value("sessionId",std::string{}) != narrow(runtime->session)) return;
+            if (const auto regions=WindowRegions::parse(value.value("regions",Json()))) {
+                std::lock_guard lock(runtime->panel_geometry_mutex); runtime->window_regions=*regions;
+            }
+            return;
+        }
         if (type == "close") { set_visible(false); return; }
         if (type == "ime_focus") {
             if (value.value("sessionId", std::string{}) != narrow(runtime->session)) return;

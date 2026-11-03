@@ -4,7 +4,7 @@ import type { ReffLanguage } from '@reff/ui';
 import { translate } from '../../locales';
 import type { ReffSettings, SettingsPatch } from './types';
 
-const props = defineProps<{ language: ReffLanguage; startup: ReffSettings['startup'] }>();
+const props = defineProps<{ language: ReffLanguage; startup: ReffSettings['startup']; navigation: ReffSettings['navigation'] }>();
 const emit = defineEmits<{ change: [value: SettingsPatch] }>();
 const t = computed(() => (key: Parameters<typeof translate>[1]) => translate(props.language, key));
 
@@ -30,6 +30,10 @@ function setLanguage(value: string) {
         <small>{{ t('preloadHint') }}</small>
       </span>
       <el-switch :model-value="startup.preload" @change="emit('change', { startup: { preload: Boolean($event) } })" />
+    </label>
+    <label class="setting-row remember-plugin-row">
+      <span class="setting-copy"><strong>{{ t('rememberLastPlugin') }}</strong><small>{{ t('rememberLastPluginHint') }}</small></span>
+      <el-switch :aria-label="t('rememberLastPlugin')" :model-value="navigation.rememberLastPlugin" @change="emit('change', { navigation: { rememberLastPlugin: Boolean($event) } })" />
     </label>
   </section>
 </template>

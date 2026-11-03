@@ -30,6 +30,10 @@ int wmain(int argc,wchar_t** argv){try{
         s.send=[&](Json value){if(!available)return false;sent.push_back(std::move(value));return true;};
         s.dispatch({{"type","ready"},{"ready",true},{"epoch",1}});};
     setup(a);setup(b);
+    require(a.navigate("reff://shell/index.html","main"),"Shell navigation rejected");
+    require(call(a,"ui.window.regions",{{"viewportWidth",960},{"viewportHeight",640},{"rects",Json::array({{{"x",100},{"y",0},{"width",800},{"height",40}}})}})->code==0,"Shell drag regions rejected");
+    require(sent.back()["type"]=="window_regions" && sent.back()["sessionId"]=="test","drag message session missing");
+    require(call(a,"ui.window.regions",{{"viewportWidth",960},{"viewportHeight",640},{"rects",Json::array({{{"x",100},{"y",0},{"width",900},{"height",40}}})}})->code==400,"unsafe drag bounds accepted");
     require(a.resource_path("reff://shell/index.html").has_value(),"valid Shell resource rejected");
     require(a.resource_path("reff://example.vue.plugin/ui/dist/index.html?reload=1").has_value(),"cache busting rejected");
     for(const auto* url:{"https://example.com/","file:///C:/Windows/win.ini","reff://shell/../version.json",
@@ -38,6 +42,7 @@ int wmain(int argc,wchar_t** argv){try{
         require(!a.resource_path(url),"unsafe resource accepted");
     require(a.navigate("reff://example.vue.plugin/ui/dist/index.html","f1"),"plugin navigation rejected");
     require(b.navigate("reff://example.vue.plugin/ui/dist/index.html","f2"),"second frame rejected");
+    require(call(a,"ui.window.regions")->code==403,"plugin acquired window drag privileges");
     require(call(a,"ui.plugins")->code==403,"plugin acquired Shell privileges");
     require(call(a,"reff.settings.get")->code==403,"plugin read core settings");
     require(call(a,"example.react.get")->code==403,"cross-plugin method accepted");

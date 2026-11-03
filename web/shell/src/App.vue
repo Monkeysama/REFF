@@ -7,6 +7,7 @@ import SchemaPanel, { type SchemaDefinition, type SchemaField } from './componen
 import SettingsPanel from './features/settings/SettingsPanel.vue';
 import type { ReffSettings, SettingsPatch } from './features/settings/types';
 import { translate } from './locales';
+import { Fold, Expand, Setting, ArrowUp, ArrowDown } from '@element-plus/icons-vue';
 
 type PluginSummary = {
   id: string;
@@ -37,6 +38,8 @@ const settings = shallowRef<ReffSettings>({
   hotkey: { key: 119, modifiers: 0 },
   appearance: { preset: 'emerald', accent: '#67D3B2', background: '#10151E', surface: '#151D28', backgroundOpacity: 0.94, cornerRadius: 6, surfaceBlur: 8, textScale: 1 },
   startup: { preload: true },
+  layout: { sidebarCollapsed: true, headerCollapsed: true, pluginPadding: 12 },
+  navigation: { rememberLastPlugin: true, lastPluginId: settingsPluginId },
   input: { mousePassthrough: false, keyboardPassthrough: false },
   window: { rememberGeometry: true },
 });
@@ -53,6 +56,8 @@ let lifecycleEpoch = -1;
 let lifecycleBusy = false;
 let inputFocusReporter: (() => void) | null = null;
 let devVersion = '';
+const dragRegion = shallowRef<HTMLElement | null>(null);
+let regionObserver: ResizeObserver | undefined;
 
 const activePlugin = computed(() => plugins.value.find(plugin => plugin.id === selectedPluginId.value) || null);
 // 根据全局语言选择插件名称，并在缺少翻译时按中英及首个值回退。
@@ -177,12 +182,30 @@ watch(selectedPluginId, (current, previous) => {
 // 左侧导航只消费宿主返回的 manifest 摘要；Shell 不包含任何具体插件 ID 或业务页面。
 function selectPlugin(plugin: PluginSummary) {
   selectedPluginId.value = plugin.id;
+  rememberSelection(plugin.id);
 }
 
 // 内置设置固定占据首项，不进入第三方 manifest 排序，也不能被同名插件覆盖。
 function selectSettings() {
   selectedPluginId.value = settingsPluginId;
+  rememberSelection(settingsPluginId);
 }
+
+// 只记录用户明确的导航；脚本重置的临时空选择不覆盖上次页面。
+function rememberSelection(id: string) {
+  if (settings.value.navigation.rememberLastPlugin && settings.value.navigation.lastPluginId !== id)
+    updateSettings({ navigation: { lastPluginId: id } });
+}
+
+// 上报纯标题区，不包含折叠按钮；原生层按真实视口换算拖动命中区域。
+async function reportDragRegion() {
+  const rect = dragRegion.value?.getBoundingClientRect();
+  if (!rect) return;
+  try { await reff.call('ui.window.regions', { viewportWidth: innerWidth, viewportHeight: innerHeight,
+    rects: [{ x: Math.round(rect.left), y: Math.round(rect.top), width: Math.floor(rect.width), height: Math.floor(rect.height) }] }); }
+  catch { /* 宿主退出时无需弹窗，布局再次变化时重新提交。 */ }
+}
+watch(() => settings.value.layout, async () => { await nextTick(); void reportDragRegion(); }, { deep: true });
 
 // 将最新偏好同步到 Shell 与当前隔离页面；插件公共 UI 只消费经过 Core 校验的结构化值。
 function applySettings(value: ReffSettings) {
@@ -233,7 +256,7 @@ async function onEmbeddedMessage(event: MessageEvent) {
     if (event.data?.type === 'reff:preferences-ready') return;
   }
   if (event.data?.type === 'reff:navigate' && event.data.action === 'back') {
-    selectedPluginId.value = settingsPluginId;
+    selectSettings();
     return;
   }
   if (event.data?.type !== 'reff:request' || !plugin) return;
@@ -290,6 +313,7 @@ async function loadPlugins(preferredId?: string | null, connect = true) {
   initializeSchemaValues(result.plugins);
   const selected = result.plugins.find(plugin => plugin.id === preferredId);
   selectedPluginId.value = preferredId === settingsPluginId || !selected ? settingsPluginId : selected.id;
+  if (preferredId && !selected && preferredId !== settingsPluginId) rememberSelection(settingsPluginId);
   if (connect) await connectSchemaPlugins(result.plugins);
 }
 
@@ -377,9 +401,11 @@ async function runSelfTest() {
 onMounted(async () => {
   inputFocusReporter = installInputFocusReporter(reff);
   window.addEventListener('message', onEmbeddedMessage);
+  regionObserver = new ResizeObserver(() => { void reportDragRegion(); });
+  if (dragRegion.value) regionObserver.observe(dragRegion.value);
   try { applySettings(await reff.call<ReffSettings>('reff.settings.get')); }
   catch (error) { ElMessage.warning(String(error)); }
-  try { await loadPlugins(settingsPluginId, false); }
+  try { await loadPlugins(settings.value.navigation.rememberLastPlugin ? settings.value.navigation.lastPluginId : settingsPluginId, false); }
   catch (error) { ElMessage.warning(String(error)); }
   lifecycleTimer = window.setInterval(() => { void pollLifecycle(); }, 250);
   devReloadTimer = window.setInterval(() => { void pollDevReload(); }, 700);
@@ -400,6 +426,7 @@ onBeforeUnmount(async () => {
   if (lifecycleTimer !== undefined) window.clearInterval(lifecycleTimer);
   if (devReloadTimer !== undefined) window.clearInterval(devReloadTimer);
   inputFocusReporter?.();
+  regionObserver?.disconnect();
   inputFocusReporter = null;
   window.removeEventListener('message', onEmbeddedMessage);
   await cleanupSubscriptions();
@@ -409,26 +436,35 @@ onBeforeUnmount(async () => {
 
 <template>
   <el-config-provider :locale="elementLocale">
-  <el-container class="reff-shell">
-    <el-aside width="220px">
+  <el-container class="reff-shell" :class="{ 'sidebar-collapsed': settings.layout.sidebarCollapsed, 'header-collapsed': settings.layout.headerCollapsed }">
+    <a class="skip-link" href="#workspace-content">{{ t('skipContent') }}</a>
+    <el-aside :width="settings.layout.sidebarCollapsed ? '56px' : '208px'" class="navigation">
       <div class="brand"><strong class="brand-name">RE<span>FF</span></strong><small>v{{ reffVersion }}</small></div>
+      <nav :aria-label="t('plugins')">
       <el-menu :default-active="activeMenu">
-        <el-menu-item :index="`plugin:${settingsPluginId}`" @click="selectSettings">{{ t('settings') }}</el-menu-item>
-        <el-menu-item v-for="plugin in plugins" :key="plugin.id" :index="`plugin:${plugin.id}`" @click="selectPlugin(plugin)">
-          {{ pluginName(plugin) }}
-        </el-menu-item>
+        <el-tooltip :content="t('settings')" placement="right" :disabled="!settings.layout.sidebarCollapsed">
+          <el-menu-item :data-plugin-id="settingsPluginId" :index="`plugin:${settingsPluginId}`" :aria-label="t('settings')" @click="selectSettings"><span class="chrome-icon" aria-hidden="true"><Setting /></span><span class="nav-label">{{ t('settings') }}</span></el-menu-item>
+        </el-tooltip>
+        <el-tooltip v-for="plugin in plugins" :key="plugin.id" :content="pluginName(plugin)" placement="right" :disabled="!settings.layout.sidebarCollapsed">
+          <el-menu-item :data-plugin-id="plugin.id" :index="`plugin:${plugin.id}`" :aria-label="pluginName(plugin)" @click="selectPlugin(plugin)">
+            <span class="plugin-monogram" aria-hidden="true">{{ plugin.id.split('.').slice(-1)[0]?.slice(0, 2).toUpperCase() }}</span><span class="nav-label">{{ pluginName(plugin) }}</span>
+          </el-menu-item>
+        </el-tooltip>
       </el-menu>
-      <div class="status"><i :class="{ ready }"/> {{ statusText }}</div>
+      </nav>
+      <div class="status" :title="statusText"><i :class="{ ready }"/><span class="nav-label">{{ statusText }}</span></div>
     </el-aside>
     <section class="reff-workspace">
-      <div class="window-bar">
-        <div class="window-title">
-          <strong>{{ currentPageTitle }}</strong>
+      <header class="window-bar">
+        <button class="chrome-button sidebar-toggle" type="button" :aria-label="t(settings.layout.sidebarCollapsed ? 'expandSidebar' : 'collapseSidebar')" :title="t(settings.layout.sidebarCollapsed ? 'expandSidebar' : 'collapseSidebar')" :aria-expanded="!settings.layout.sidebarCollapsed" @click="updateSettings({ layout: { sidebarCollapsed: !settings.layout.sidebarCollapsed } })"><span class="chrome-icon" aria-hidden="true"><Expand v-if="settings.layout.sidebarCollapsed" /><Fold v-else /></span></button>
+        <div ref="dragRegion" class="window-title" :title="`${currentPageTitle} v${currentPageVersion}${currentPageAuthor ? ' · ' + currentPageAuthor : ''}`">
+          <h1>{{ currentPageTitle }}</h1>
           <span class="window-version">v{{ currentPageVersion }}</span>
           <span v-if="currentPageAuthor" class="window-author">{{ t('author') }}：{{ currentPageAuthor }}</span>
         </div>
-      </div>
-      <el-main class="workspace-content">
+        <button class="chrome-button header-toggle" type="button" :aria-label="t(settings.layout.headerCollapsed ? 'expandHeader' : 'collapseHeader')" :title="t(settings.layout.headerCollapsed ? 'expandHeader' : 'collapseHeader')" :aria-expanded="!settings.layout.headerCollapsed" @click="updateSettings({ layout: { headerCollapsed: !settings.layout.headerCollapsed } })"><span class="chrome-icon" aria-hidden="true"><ArrowDown v-if="settings.layout.headerCollapsed" /><ArrowUp v-else /></span></button>
+      </header>
+      <el-main id="workspace-content" tabindex="-1" class="workspace-content" :class="{ 'plugin-content': !settingsActive }" :style="{ '--plugin-padding': `${settings.layout.pluginPadding}px` }">
         <SettingsPanel v-if="settingsActive" :settings="settings" :plugins="plugins" :version="reffVersion" :saving="savingSettings" @change="updateSettings" @reset="resetSettings" @hotkey-capture="setHotkeyCapture" />
         <div v-else-if="isolatedPlugin" class="isolated-host">
           <iframe :key="isolatedReloadKey" ref="isolatedFrame" :src="isolatedPluginUrl" :title="pluginName(isolatedPlugin)" />
@@ -455,38 +491,62 @@ onBeforeUnmount(async () => {
 </template>
 
 <style scoped>
-.reff-shell { position: relative; height: 100%; overflow: hidden; border-radius: var(--reff-corner-radius); background: transparent; cursor: none; isolation: isolate; }
-.reff-shell::before { content: ""; position: absolute; inset: -32px; z-index: 0; pointer-events: none; background: radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--reff-accent) 24%, transparent), transparent 46%), radial-gradient(circle at 82% 88%, color-mix(in srgb, #ffffff 12%, transparent), transparent 50%), repeating-linear-gradient(115deg, rgb(255 255 255 / calc(var(--reff-frost-alpha) * .12)) 0 1px, transparent 1px 5px); opacity: calc(var(--reff-frost-alpha) * 2.5); filter: blur(calc(var(--reff-surface-blur) * 1.5)); }
-.reff-shell > * { position: relative; z-index: 1; }
+:global(html), :global(body) { overflow: hidden; }
+.reff-shell { position: relative; height: 100%; overflow: hidden; border-radius: var(--reff-corner-radius); cursor: none; isolation: isolate; background: transparent; }
 .reff-shell * { cursor: none !important; }
-.reff-shell :deep(.el-aside) { position: relative; background: rgb(var(--reff-surface-rgb) / calc(var(--reff-panel-opacity) * .96)); border-right: 1px solid var(--reff-border); -webkit-backdrop-filter: blur(var(--reff-surface-blur)) saturate(1.08); backdrop-filter: blur(var(--reff-surface-blur)) saturate(1.08); }
-.brand { display: flex; align-items: baseline; gap: 9px; padding: 28px 24px 22px; font-size: calc(28px * var(--reff-text-scale)); font-weight: 800; letter-spacing: 2px; }
-.brand-name { font: inherit; letter-spacing: 0; }
+.navigation { display: flex; flex-direction: column; min-height: 0; background: rgb(var(--reff-surface-rgb) / var(--reff-panel-opacity)); backdrop-filter: blur(var(--reff-surface-blur)); border-right: 1px solid var(--reff-border); }
+.brand { height: 64px; flex: 0 0 64px; display: flex; align-items: center; gap: 8px; padding: 0 20px; }
+.brand-name { font-size: calc(21px * var(--reff-text-scale)); font-weight: 750; letter-spacing: 0; }
 .brand span { color: var(--reff-accent); }
-.brand small { color: var(--reff-muted); font-size: calc(11px * var(--reff-text-scale)); font-weight: 600; letter-spacing: 0; }
-.reff-shell :deep(.el-menu) { border-right: 0; padding: 8px 10px; }
-.reff-shell :deep(.el-menu-item) { height: 42px; line-height: 42px; margin: 3px 0; border-radius: 4px; font-size: calc(14px * var(--reff-text-scale)); }
-.reff-shell :deep(.el-menu-item:hover) { color: var(--reff-text); }
-.reff-shell :deep(.el-menu-item.is-active) { background: color-mix(in srgb, var(--reff-accent) 18%, var(--reff-surface)); color: var(--reff-accent-strong); }
-.status { position: absolute; bottom: 22px; padding-left: 24px; color: var(--reff-muted); font-size: calc(12px * var(--reff-text-scale)); }
-.status i { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: #667080; }
+.brand small { color: var(--reff-muted); font-size: var(--reff-font-size-xs); }
+nav { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.reff-shell :deep(.el-menu) { border: 0; padding: 8px; background: transparent; }
+.reff-shell :deep(.el-menu-item) { display: flex; gap: 8px; height: 40px; line-height: normal; margin: 4px 0; padding: 0 12px !important; border-radius: 4px; color: var(--reff-muted); font-size: var(--reff-font-size-sm); }
+.reff-shell :deep(.el-menu-item:hover), .reff-shell :deep(.el-menu-item.is-active) { background: color-mix(in srgb, var(--reff-text) 8%, transparent); color: var(--reff-text); }
+.reff-shell :deep(.el-menu-item .chrome-icon) { margin: 0; width: 20px; flex-shrink: 0; }
+.nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-monogram { width: 20px; flex: 0 0 20px; text-align: center; font-size: 12px; font-weight: 600; }
+.status { display: flex; align-items: center; gap: 8px; padding: 16px 20px; font-size: var(--reff-font-size-xs); color: var(--reff-muted); }
+.status i { flex: 0 0 6px; height: 6px; border-radius: 50%; background: var(--reff-muted); }
 .status i.ready { background: var(--reff-accent); }
-.reff-workspace { flex: 1; height: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: transparent; }
-.window-bar { width: 100%; height: 56px; flex: 0 0 56px; padding: 0 22px; box-sizing: border-box; display: flex; align-items: center; border-bottom: 1px solid var(--reff-border); background: rgb(var(--reff-surface-rgb) / calc(var(--reff-panel-opacity) * .96)); color: var(--reff-text); -webkit-backdrop-filter: blur(var(--reff-surface-blur)) saturate(1.08); backdrop-filter: blur(var(--reff-surface-blur)) saturate(1.08); }
-.window-title { min-width: 0; display: flex; align-items: baseline; }
-.window-title strong { min-width: 0; overflow: hidden; font-size: calc(17px * var(--reff-text-scale)); letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
-.window-version, .window-author { flex: 0 0 auto; color: var(--reff-muted); font-size: calc(12px * var(--reff-text-scale)); letter-spacing: 0; white-space: nowrap; }
-.window-version { margin-left: 10px; }
-.window-author { margin-left: 14px; }
-.workspace-content { flex: 1; width: 100%; max-width: none; min-width: 0; min-height: 0; margin: 0; padding: 32px 40px; display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain; background: rgb(var(--reff-bg-rgb) / var(--reff-panel-opacity)); -webkit-backdrop-filter: blur(var(--reff-surface-blur)) saturate(1.08); backdrop-filter: blur(var(--reff-surface-blur)) saturate(1.08); }
+.sidebar-collapsed .brand { padding: 0; justify-content: center; }
+.sidebar-collapsed .brand-name { font-size: 15px; }
+.sidebar-collapsed .brand small, .sidebar-collapsed .nav-label { display: none; }
+.sidebar-collapsed :deep(.el-menu-item) { justify-content: center; padding: 0 !important; }
+.sidebar-collapsed .status { justify-content: center; padding: 16px 0; }
+.reff-workspace { flex: 1; height: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.window-bar { display: flex; align-items: center; gap: 4px; padding: 0 8px; min-height: 64px; flex: 0 0 64px; border-bottom: 1px solid var(--reff-border); background: rgb(var(--reff-surface-rgb) / var(--reff-panel-opacity)); backdrop-filter: blur(var(--reff-surface-blur)); }
+.window-title { align-self: stretch; flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; align-content: center; column-gap: 10px; row-gap: 2px; padding: 0 8px; user-select: none; }
+.window-title h1 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--reff-font-size-md); font-weight: 600; }
+.window-version, .window-author { color: var(--reff-muted); font-size: var(--reff-font-size-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.window-author { flex-basis: 100%; }
+.chrome-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; padding: 0; background: transparent; color: var(--reff-muted); border: 0; border-radius: 4px; }
+.chrome-button:hover { color: var(--reff-text); background: color-mix(in srgb, var(--reff-text) 8%, transparent); }
+.chrome-button:active { background: color-mix(in srgb, var(--reff-text) 14%, transparent); }
+.chrome-icon { display: inline-flex; align-items: center; justify-content: center; font-size: 18px; }
+.chrome-icon :deep(svg) { width: 1em; height: 1em; fill: currentColor; }
+.header-collapsed .window-bar { min-height: 40px; flex-basis: 40px; }
+.header-collapsed .window-version, .header-collapsed .window-author { display: none; }
+.header-collapsed .brand { height: 40px; flex-basis: 40px; }
+.workspace-content { flex: 1; min-width: 0; min-height: 0; width: 100%; margin: 0; padding: 24px 32px; display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain; background: rgb(var(--reff-bg-rgb) / var(--reff-panel-opacity)); backdrop-filter: blur(var(--reff-surface-blur)); }
+.workspace-content.plugin-content { padding: var(--plugin-padding); }
 .workspace-content > * { flex-shrink: 0; }
 .isolated-host { flex: 1; width: 100%; min-width: 0; min-height: 0; display: flex; }
 .isolated-host iframe { display: block; flex: 1; width: 100%; height: 100%; min-width: 0; min-height: 0; border: 0; background: transparent; }
-.empty-state { flex: 1; min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--reff-muted); text-align: center; }
-.empty-state strong { color: var(--reff-text); font-size: calc(17px * var(--reff-text-scale)); font-weight: 600; }
-.empty-state span { font-size: calc(13px * var(--reff-text-scale)); }
-.workspace-content::-webkit-scrollbar { width: 10px; }
-.workspace-content::-webkit-scrollbar-track { background: rgb(var(--reff-bg-rgb) / 55%); }
-.workspace-content::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 5px; background: color-mix(in srgb, var(--reff-muted) 54%, transparent); background-clip: padding-box; }
-.workspace-content::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--reff-muted) 72%, transparent); background-clip: padding-box; }
+.empty-state { flex: 1; display: grid; align-content: center; justify-items: center; gap: 8px; color: var(--reff-muted); text-align: center; }
+.empty-state strong { color: var(--reff-text); font-size: var(--reff-font-size-lg); }
+.empty-state span { font-size: var(--reff-font-size-sm); }
+.skip-link { position: absolute; left: 64px; top: -80px; z-index: 5; background: var(--reff-surface); padding: 8px 12px; color: var(--reff-text); }
+.skip-link:focus { top: 4px; }
+.reff-shell :deep(:focus-visible) { outline: 2px solid var(--reff-accent); outline-offset: -2px; }
+.workspace-content::-webkit-scrollbar, nav::-webkit-scrollbar { width: 8px; }
+.workspace-content::-webkit-scrollbar-thumb, nav::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 4px; background: var(--reff-muted); background-clip: padding-box; }
+/* 窄窗口展开导航时覆盖正文，不挤压插件；标题按钮始终可达，拖动区仍由真实 DOM 上报。 */
+@media (max-width: 600px) {
+  .workspace-content { padding: 20px 16px; }
+  .reff-shell:not(.sidebar-collapsed) .navigation { position: absolute; z-index: 2; top: 64px; bottom: 0; left: 0; max-width: 75%; border-top: 1px solid var(--reff-border); }
+  .reff-shell:not(.sidebar-collapsed).header-collapsed .navigation { top: 40px; }
+  .reff-shell:not(.sidebar-collapsed) .brand { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .reff-shell :deep(*) { scroll-behavior: auto !important; transition: none !important; } }
 </style>

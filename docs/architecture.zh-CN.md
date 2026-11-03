@@ -2,7 +2,11 @@
 
 项目统一展示名称为 **REFF — REFramework Web UI Runtime**，其中 REFF 是独立品牌名。本文描述其运行时架构、线程边界、资源所有权和插件页面模型。
 
-当前 Shell 采用左侧插件列表、右侧页面容器。`reff.settings` 是唯一固定的 Core 系统项并始终排在第一位，其余页面完全来自动态 manifest。右侧客户区会填满 REFF 窗口分配的可用尺寸；Shell 只保留统一标题栏，插件页面获得其下方的完整内容视口，不能使用固定最大宽度假定窗口尺寸。manifest 通过 `ui.mode` 选择 `component` 或 `isolated-page`：前者由 Shell 的通用 Schema 渲染器承载，后者使用受控 iframe 页面。Shell 不持有第三方插件业务状态。身份由宿主绑定真实页面代次，切页前清理旧订阅。插件资源根固定到 manifest 所在目录，方法和事件由 manifest 与 Lua 注册表共同授权。原生 Present 线程维护可移动、可缩放客户区矩形，WebView2 视口与共享帧按最新尺寸调度。
+当前 Shell 采用左侧插件列表、右侧页面容器。`reff.settings` 是唯一固定的 Core 系统项并始终排在第一位，其余页面完全来自动态 manifest。右侧客户区会填满 REFF 窗口分配的可用尺寸；Shell 默认使用折叠侧栏与精简标题栏，插件页面使用剩余视口及可配置的容器留白，不能使用固定最大宽度假定窗口尺寸。manifest 通过 `ui.mode` 选择 `component` 或 `isolated-page`：前者由 Shell 的通用 Schema 渲染器承载，后者使用受控 iframe 页面。Shell 不持有第三方插件业务状态。身份由宿主绑定真实页面代次，切页前清理旧订阅。插件资源根固定到 manifest 所在目录，方法和事件由 manifest 与 Lua 注册表共同授权。原生 Present 线程维护可移动、可缩放客户区矩形，WebView2 视口与共享帧按最新尺寸调度。
+
+侧栏折叠、标题栏精简、插件容器留白和导航记忆分别由 Core 设置中的 `layout`、`navigation` 持有；旧设置自动补齐新分组。`navigation.rememberLastPlugin` 默认开启，只记录明确选页，脚本重置的临时空选择不覆盖记录。启动时缺失的插件回退到 `reff.settings`。
+
+Shell 通过内部 `ui.window.regions` 上报真实标题区矩形，排除两端按钮；宿主只接受原生绑定的 Shell 文档调用，游戏侧按当前显示矩形缩放命中点。矩形是跨线程复制的值对象，在面板几何锁内更新，宿主新会话清空旧区域。iframe 输入坐标继续按实际边界换算，不依赖固定侧栏或标题高度。
 
 ## 1. 进程与模块
 

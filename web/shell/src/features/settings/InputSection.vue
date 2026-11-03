@@ -10,7 +10,7 @@ const t = computed(() => (key: Parameters<typeof translate>[1]) => translate(pro
 </script>
 
 <template>
-  <section class="settings-section">
+  <section class="settings-section input-section">
     <h2>{{ t('input') }}</h2>
     <label class="setting-row"><span>{{ t('mousePassthrough') }}</span><el-switch :model-value="input.mousePassthrough" @change="emit('change', { mousePassthrough: Boolean($event) })" /></label>
     <label class="setting-row"><span>{{ t('keyboardPassthrough') }}</span><el-switch :model-value="input.keyboardPassthrough" @change="emit('change', { keyboardPassthrough: Boolean($event) })" /></label>

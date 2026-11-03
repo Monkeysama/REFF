@@ -8,9 +8,11 @@
 #include "../native/plugin/keyboard_event.hpp"
 #include "../native/plugin/game_profile.hpp"
 #include "ime_session.hpp"
+#include "window_regions.hpp"
 #include <iostream>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 
 // 必要边界测试：断包重组、非法长度、队列背压，以及跨句柄画面快照一致性。
 int main() {
@@ -140,6 +142,12 @@ int main() {
                 settings.snapshot()["appearance"].value("textScale", 0.0) == 1.0 &&
                 settings.snapshot()["startup"].value("preload", false), "settings defaults");
             require(!settings.update({{"unknown", true}}, error), "unknown settings rejected");
+            require(settings.snapshot()["layout"]["sidebarCollapsed"]==true && settings.snapshot()["layout"]["headerCollapsed"]==true &&
+                settings.snapshot()["navigation"]["rememberLastPlugin"]==true, "compact and remembered navigation defaults");
+            require(settings.update({{"layout",{{"sidebarCollapsed",false},{"pluginPadding",0}}},{"navigation",{{"lastPluginId","example.vue"}}}},error), "layout navigation patch");
+            require(!settings.update({{"layout",{{"pluginPadding",49}}}},error), "padding upper bound");
+            require(!settings.update({{"layout",{{"pluginPadding",1.5}}}},error), "padding integer required");
+            require(!settings.update({{"navigation",{{"lastPluginId","../bad"}}}},error), "navigation id rejected");
             error.clear();
             require(settings.update({{"language", "en-US"}, {"appearance", {{"surfaceBlur", 32}, {"textScale", 1.4}}},
                 {"startup", {{"preload", false}}}, {"input", {{"mousePassthrough", true}}}}, error), "settings patch accepted");
@@ -153,7 +161,22 @@ int main() {
                 !loaded.snapshot()["startup"].value("preload", true), "settings persisted");
             require(restored && restored->left == 640 && restored->top == 293 && restored->width == 1280 && restored->height == 853,
                 "settings geometry scaled");
+            require(loaded.snapshot()["layout"]["pluginPadding"]==0 && loaded.snapshot()["navigation"]["lastPluginId"]=="example.vue", "layout and last plugin persisted");
+            auto old=loaded.snapshot();old.erase("layout");old.erase("navigation");
+            { std::ofstream stream(path);stream<<old.dump(); }
+            loaded.open(path,warning);
+            require(warning.empty() && loaded.snapshot()["language"]=="en-US" && loaded.snapshot()["layout"]["sidebarCollapsed"]==true &&
+                loaded.snapshot()["navigation"]["rememberLastPlugin"]==true, "old settings migrate without losing user values");
             std::filesystem::remove_all(directory, ignored);
+        }
+        // 紧凑标题只在 Shell 声明的空白区拖动，按钮、插件内容与越界区域必须留给网页。
+        {
+            reff::Json value={{"viewportWidth",960},{"viewportHeight",640},{"rects",reff::Json::array({{{"x",100},{"y",0},{"width",800},{"height",40}}})}};
+            const auto regions=reff::WindowRegions::parse(value);
+            require(regions && regions->contains(200,20,960,640), "reported title hit");
+            require(regions->contains(400,40,1920,1280), "scaled title hit");
+            require(!regions->contains(80,20,960,640) && !regions->contains(920,20,960,640) && !regions->contains(200,45,960,640), "chrome buttons and content excluded");
+            value["rects"][0]["width"]=961; require(!reff::WindowRegions::parse(value), "out of bounds region rejected");
         }
         auto session = reff::make_session(); reff::SharedFrame writer, reader;
         writer.open(session, true); reader.open(session, false);

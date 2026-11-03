@@ -1,6 +1,6 @@
-﻿param([string]$BuildRoot='',[switch]$Behavior)
+﻿param([string]$BuildRoot='',[switch]$Behavior,[switch]$Layout)
 $ErrorActionPreference='Stop'
-$behaviorMode=[bool]$Behavior
+$behaviorMode=[bool]$Behavior -or [bool]$Layout
 $repoRoot=Split-Path -Parent $PSScriptRoot
 if (-not $BuildRoot) { $BuildRoot=Join-Path $repoRoot 'build-webview2-p1' }
 $fixture=Join-Path $repoRoot ('artifacts\webview2-p1\run-'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
@@ -36,6 +36,19 @@ if($behaviorMode){
     [IO.File]::WriteAllText((Join-Path $config 'development.json'),'{"enabled":true}')
     [IO.File]::WriteAllText((Join-Path $plugins 'example.vue\.reff-dev-version'),'initial')
     $driverArgs+='behavior'
+}
+if($Layout){
+    # 四次独立进程启动共用 Core 设置文件；最后仅改名测试夹具清单，模拟插件卸载。
+    foreach($phase in 0..3){
+        $script=Get-Content -LiteralPath (Join-Path $repoRoot 'tests\webview2_layout.js') -Raw -Encoding UTF8
+        [IO.File]::WriteAllText((Join-Path $ui 'shared\p1-test.js'),$script.Replace('__LAYOUT_PHASE__',[string]$phase),(New-Object Text.UTF8Encoding($false)))
+        if($phase -eq 3){Rename-Item -LiteralPath (Join-Path $plugins 'example.react\manifest.json') -NewName 'manifest.uninstalled'}
+        & (Join-Path $BuildRoot 'Release\reff-wv2-integration.exe') @driverArgs *> (Join-Path $fixture ('layout-phase-'+$phase+'.log'))
+        if($LASTEXITCODE -ne 0){Get-Content (Join-Path $fixture ('layout-phase-'+$phase+'.log')) -Tail 25;throw "布局/重启验证失败：$fixture phase=$phase"}
+        Copy-Item -LiteralPath (Join-Path $fixture 'integration-summary.json') -Destination (Join-Path $fixture ('layout-phase-'+$phase+'.json'))
+    }
+    Write-Host "布局/四次真实宿主启动验证通过：$fixture"
+    return
 }
 & (Join-Path $BuildRoot 'Release\reff-wv2-integration.exe') @driverArgs *> (Join-Path $fixture 'integration.log')
 if($LASTEXITCODE -ne 0){Get-Content -LiteralPath (Join-Path $fixture 'integration.log') -Tail 25;throw "P1 浏览器联调失败：$fixture"}

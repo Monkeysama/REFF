@@ -46,13 +46,15 @@ Json SettingsStore::defaults() {
     appearance["textScale"] = 1.0;
     return {{"schemaVersion", 1}, {"language", "zh-CN"}, {"hotkey", {{"key", VK_F8}, {"modifiers", 0}}}, {"appearance", appearance},
             {"startup", {{"preload", true}}},
+            {"layout", {{"sidebarCollapsed", true}, {"headerCollapsed", true}, {"pluginPadding", 12}}},
+            {"navigation", {{"rememberLastPlugin", true}, {"lastPluginId", "reff.settings"}}},
             {"input", {{"mousePassthrough", false}, {"keyboardPassthrough", false}}},
             {"window", {{"rememberGeometry", true}}}};
 }
 
 // 完整文档校验用于读取磁盘配置；字段缺失按默认值补齐，未知或越界字段拒绝加载。
 bool SettingsStore::validate_document(Json& value, std::string& error) {
-    if (!known_keys(value, {"schemaVersion", "language", "hotkey", "appearance", "startup", "input", "window"}) || value.value("schemaVersion", 0) != 1) {
+    if (!known_keys(value, {"schemaVersion", "language", "hotkey", "appearance", "startup", "input", "window", "layout", "navigation"}) || value.value("schemaVersion", 0) != 1) {
         error = "配置版本或顶层字段不受支持"; return false;
     }
     const auto language = value.value("language", std::string{});
@@ -70,6 +72,20 @@ bool SettingsStore::validate_document(Json& value, std::string& error) {
     if (!value.contains("startup")) value["startup"] = defaults()["startup"];
     if (!known_keys(value["startup"], {"preload"}) || !value["startup"].value("preload", Json()).is_boolean()) {
         error = "startup 字段不合法"; return false;
+    }
+    // 新布局分组在旧配置中补默认值，保持已有主题、输入和窗口记录不变。
+    for (const auto* group : {"layout", "navigation"}) if (!value.contains(group)) value[group] = defaults()[group];
+    const auto& layout = value["layout"];
+    if (!known_keys(layout, {"sidebarCollapsed", "headerCollapsed", "pluginPadding"}) ||
+        !layout.value("sidebarCollapsed", Json()).is_boolean() || !layout.value("headerCollapsed", Json()).is_boolean() ||
+        !layout.value("pluginPadding", Json()).is_number_integer() || !finite_number(layout["pluginPadding"], 0, 48)) {
+        error = "layout 字段不合法"; return false;
+    }
+    const auto& navigation = value["navigation"];
+    if (!known_keys(navigation, {"rememberLastPlugin", "lastPluginId"}) ||
+        !navigation.value("rememberLastPlugin", Json()).is_boolean() || !navigation.value("lastPluginId", Json()).is_string() ||
+        !std::regex_match(navigation["lastPluginId"].get<std::string>(), std::regex("[a-z0-9][a-z0-9.-]{0,127}"))) {
+        error = "navigation 字段不合法"; return false;
     }
     if (!value.contains("appearance") || !known_keys(value["appearance"], {"preset", "accent", "background", "surface", "backgroundOpacity", "cornerRadius", "surfaceBlur", "textScale"})) {
         error = "appearance 字段不合法"; return false;
@@ -130,7 +146,7 @@ Json SettingsStore::snapshot() const {
 
 // 设置页只提交差量对象；每个分组独立合并，禁止通过配置接口改写内部窗口几何。
 bool SettingsStore::update(const Json& patch, std::string& error) {
-    if (!known_keys(patch, {"language", "hotkey", "appearance", "startup", "input", "window"})) { error = "设置补丁包含未知字段"; return false; }
+    if (!known_keys(patch, {"language", "hotkey", "appearance", "startup", "input", "window", "layout", "navigation"})) { error = "设置补丁包含未知字段"; return false; }
     std::lock_guard lock(mutex_);
     Json candidate = value_;
     if (patch.contains("language")) candidate["language"] = patch["language"];
@@ -179,6 +195,15 @@ bool SettingsStore::update(const Json& patch, std::string& error) {
             candidate["window"]["rememberGeometry"] = patch["window"]["rememberGeometry"];
             if (!patch["window"]["rememberGeometry"].is_boolean() || !patch["window"]["rememberGeometry"].get<bool>()) candidate["window"].erase("geometry");
         }
+    }
+    // 布局与导航差量沿用 Core 的原子保存路径，不使用会随缓存清理的浏览器存储。
+    for (const auto* group : {"layout", "navigation"}) {
+        if (!patch.contains(group)) continue;
+        const bool valid = std::string_view(group) == "layout"
+            ? known_keys(patch[group], {"sidebarCollapsed", "headerCollapsed", "pluginPadding"})
+            : known_keys(patch[group], {"rememberLastPlugin", "lastPluginId"});
+        if (!valid) { error = "布局或导航补丁包含未知字段"; return false; }
+        for (const auto& [key, item] : patch[group].items()) candidate[group][key] = item;
     }
     if (!validate_document(candidate, error)) return false;
     value_ = std::move(candidate);

@@ -1,5 +1,6 @@
 #include "services.hpp"
 #include "ime_session.hpp"
+#include "window_regions.hpp"
 #include <algorithm>
 #include <fstream>
 namespace reff {
@@ -112,6 +113,14 @@ void HostServices::query(const std::string& raw,std::shared_ptr<Reply> callback)
         }
         if (method == "ui.close") {
             send({{"type", "close"}}); callback->Success("{}"); return;
+        }
+        // 只有原生绑定的 Shell 能声明拖动区；插件不能借此截获其他页面的点击。
+        if (method == "ui.window.regions") {
+            if (!page_.plugin_id.empty()) { callback->Failure(403,"FORBIDDEN"); return; }
+            auto params=value["params"];
+            if (!WindowRegions::parse(params)) { callback->Failure(400,"INVALID_ARGUMENT"); return; }
+            if (!send({{"type","window_regions"},{"sessionId",session_},{"regions",params}})) { callback->Failure(429,"QUEUE_FULL"); return; }
+            callback->Success("{}"); return;
         }
         if (method == "ui.input.focus") {
             const auto params = value.value("params", Json::object());
