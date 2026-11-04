@@ -38,7 +38,7 @@ const isolatedReloadKey = shallowRef(0);
 const settings = shallowRef<ReffSettings>({
   schemaVersion: 1,
   language: 'zh-CN',
-  hotkey: { key: 119, modifiers: 0 },
+  hotkey: { key: 36, modifiers: 0 },
   appearance: { preset: 'emerald', accent: '#67D3B2', background: '#10151E', surface: '#151D28', backgroundOpacity: 0.94, cornerRadius: 6, surfaceBlur: 8, textScale: 1 },
   startup: { preload: true },
   layout: { sidebarCollapsed: false, headerCollapsed: true, sidebarCompact: true, headerCompact: false, pluginPadding: 24, pluginPaddingOverrides: {} },
@@ -260,7 +260,7 @@ function updateSettings(patch: SettingsPatch) {
   }).finally(() => { savingSettings.value = false; });
 }
 
-// 设置页等待按键时暂时屏蔽旧快捷键，防止按下默认 F8 关闭正在编辑的面板。
+// 设置页等待按键时暂时屏蔽旧快捷键，防止按下默认 Home 关闭正在编辑的面板。
 async function setHotkeyCapture(active: boolean) {
   try { await reff.call('reff.settings.hotkey.capture', { active }); }
   catch (error) { ElMessage.error(String(error)); }

@@ -44,7 +44,7 @@ Json SettingsStore::defaults() {
     appearance["cornerRadius"] = 6;
     appearance["surfaceBlur"] = 8;
     appearance["textScale"] = 1.0;
-    return {{"schemaVersion", 1}, {"language", "zh-CN"}, {"hotkey", {{"key", VK_F8}, {"modifiers", 0}}}, {"appearance", appearance},
+    return {{"schemaVersion", 1}, {"language", "zh-CN"}, {"hotkey", {{"key", VK_HOME}, {"modifiers", 0}}}, {"appearance", appearance},
             {"startup", {{"preload", true}}},
             {"layout", {{"sidebarCollapsed", false}, {"headerCollapsed", true}, {"sidebarCompact", true}, {"headerCompact", false}, {"pluginPadding", 24}, {"pluginPaddingOverrides", Json::object()}}},
             {"navigation", {{"rememberLastPlugin", true}, {"lastPluginId", "reff.settings"}}},
@@ -59,7 +59,7 @@ bool SettingsStore::validate_document(Json& value, std::string& error) {
     }
     const auto language = value.value("language", std::string{});
     if (language != "zh-CN" && language != "en-US") { error = "language 不受支持"; return false; }
-    // 旧配置没有 hotkey 时补回 F8；绑定只保存 Windows 虚拟键码和四种修饰键掩码。
+    // 旧配置没有 hotkey 时补回 Home；绑定只保存 Windows 虚拟键码和四种修饰键掩码。
     if (!value.contains("hotkey")) value["hotkey"] = defaults()["hotkey"];
     if (!known_keys(value["hotkey"], {"key", "modifiers"}) ||
         !value["hotkey"].value("key", Json()).is_number_integer() ||

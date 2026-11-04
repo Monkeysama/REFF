@@ -74,7 +74,7 @@
   const iframe=document.querySelector('iframe'),frameRect=iframe.getBoundingClientRect();
   iframe.contentWindow.postMessage({type:'p2-input',offset:{x:frameRect.left,y:frameRect.top}},'*');const child=await childInput;check(child.passed,child.error);
   document.querySelector('.el-menu-item').click();await wait(()=>!document.querySelector('iframe'),'iframe cleanup');await wait(()=>!document.querySelector('.settings-panel footer button')?.disabled,'navigation save completed');document.querySelector('.settings-panel footer button').click();
-  await wait(()=>document.querySelector('kbd')?.textContent==='F8','restore defaults');const defaults=await call('reff.settings.get');check(defaults.language==='zh-CN'&&defaults.startup.preload&&!defaults.input.keyboardPassthrough&&!defaults.window.geometry,'default reset');
+  await wait(()=>document.querySelector('kbd')?.textContent==='Home','restore defaults');const defaults=await call('reff.settings.get');check(defaults.hotkey.key===36&&defaults.hotkey.modifiers===0&&defaults.language==='zh-CN'&&defaults.startup.preload&&!defaults.input.keyboardPassthrough&&!defaults.window.geometry,'default reset');
   await call('test.finished',{passed:true,settings:true,persistence:true,geometry:true,themeAndLanguage:true,modifierOnlyCaptureIgnored:true,hotkeys:['Ctrl+Shift+K','Ctrl+K','F24','Ctrl+;'],mainAndFrameInput:true,focusRelease:true,hiddenResume:true,hotReloadDocuments:reports,clipboardAndSystemImeValidated:false});
  }catch(error){await call('test.finished',{passed:false,error:String(error.stack||error),reports});}
 })().catch(error=>window.reffNativeCall('test.finished',{passed:false,error:String(error.stack||error)}));

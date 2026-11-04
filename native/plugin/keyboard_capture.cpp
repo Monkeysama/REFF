@@ -44,7 +44,7 @@ bool KeyboardCapture::install() {
     return true;
 }
 
-// DirectInput 已完成设备读取后再清零游戏可见的键盘状态；F8/IME 仍由 Win32 与透明代理路径处理。
+// DirectInput 已完成设备读取后再清零游戏可见的键盘状态；快捷键/IME 仍由 Win32 与透明代理路径处理。
 HRESULT WINAPI KeyboardCapture::get_device_state(IDirectInputDevice8W* device, DWORD size, LPVOID data) {
     auto* self = instance_;
     if (!self || !self->original_) return DIERR_NOTINITIALIZED;

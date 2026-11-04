@@ -126,7 +126,7 @@ struct Runtime {
     std::atomic_bool raw_keyboard_no_legacy{};
     ULONGLONG raw_keyboard_probe_tick{};
     // 快捷键绑定由设置线程更新，窗口消息线程只读取原子快照；capture_active 用于等待用户按键时屏蔽旧绑定。
-    std::atomic_int hotkey_key{VK_F8}, hotkey_modifiers{};
+    std::atomic_int hotkey_key{VK_HOME}, hotkey_modifiers{};
     std::atomic_bool hotkey_capture{};
     // 延迟预热只控制每局游戏的一次后台宿主启动；预热期间不改变面板显隐与输入状态。
     std::atomic_bool preload_enabled{true};
@@ -555,7 +555,7 @@ void set_visible(bool visible) {
     refresh_keyboard_capture();
     if (visible) runtime->start_requested = true;
     if (runtime->connected) {
-        // F8 重开不仅恢复显隐，还以新代次重新确认尺寸；优先队列保证重排不被普通输入拖延。
+        // 快捷键重开不仅恢复显隐，还以新代次重新确认尺寸；优先队列保证重排不被普通输入拖延。
         if (visible) runtime->viewport.refresh([](const ViewportSnapshot& next) {
             return runtime->channel.send_priority_latest(next.message());
         });
@@ -692,7 +692,7 @@ void apply_runtime_settings(const Json& settings) {
     runtime->mouse_passthrough = input.value("mousePassthrough", false);
     runtime->keyboard_passthrough = input.value("keyboardPassthrough", false);
     const auto hotkey = settings.value("hotkey", Json::object());
-    runtime->hotkey_key = hotkey.value("key", VK_F8);
+    runtime->hotkey_key = hotkey.value("key", VK_HOME);
     runtime->hotkey_modifiers = hotkey.value("modifiers", 0);
     runtime->preload_enabled = settings.value("startup", Json::object()).value("preload", true);
     refresh_keyboard_capture();
@@ -708,7 +708,7 @@ int current_hotkey_modifiers() {
     return modifiers;
 }
 
-// 只有完整的按键和修饰键组合才触发面板开关，避免 Ctrl/F8 等组合误触发普通 F8 绑定。
+// 只有完整的按键和修饰键组合才触发面板开关，避免 Ctrl/Home 等组合误触发普通 Home 绑定。
 bool is_configured_hotkey(UINT message, WPARAM key, LPARAM lparam) {
     if (message != WM_KEYDOWN && message != WM_SYSKEYDOWN) return false;
     if (lparam & (1LL << 30)) return false;
@@ -908,7 +908,7 @@ void service_loop(std::stop_token stop) {
             if (!reason && shutdown_sent && GetTickCount64() - shutdown_tick >= 3000) reason = "shutdown timed out";
             if (reason) {
                 release_host();
-                api->functions->log_info("REFF: host stopped (%s); input released; F8 starts a new session", reason);
+                api->functions->log_info("REFF: host stopped (%s); input released; configured hotkey starts a new session", reason);
             }
         }
         if (!process && runtime->start_requested.exchange(false)) {

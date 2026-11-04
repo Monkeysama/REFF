@@ -9,7 +9,7 @@ if($ProductionPreview -or $ProductionScale){
     # 正式 Shell 恢复已选插件；无 selftest、测试脚本注入或网页 DOM 自动操作。
     $plugin=Join-Path $fixture 'plugins/example.vue'
     New-Item -ItemType Directory -Path $plugin -Force|Out-Null
-    [IO.File]::WriteAllText((Join-Path $plugin 'manifest.json'),'{"manifestVersion":1,"id":"example.vue","name":"Production Preview","version":"1.0.1","reffApi":">=1.0.0 <2.0.0","games":["MHWILDS"],"ui":{"kind":"page","mode":"isolated-page","entry":"index.html"},"methods":["example.vue.get"],"events":[],"fallback":"none"}')
+    [IO.File]::WriteAllText((Join-Path $plugin 'manifest.json'),'{"manifestVersion":1,"id":"example.vue","name":"Production Preview","version":"1.0.2","reffApi":">=1.0.0 <2.0.0","games":["MHWILDS"],"ui":{"kind":"page","mode":"isolated-page","entry":"index.html"},"methods":["example.vue.get"],"events":[],"fallback":"none"}')
     [IO.File]::WriteAllText((Join-Path $plugin 'index.html'),'<html><head><script type="module" src="app.mjs"></script></head><body style="background:transparent;margin:0"><div id="portrait" style="position:absolute;left:30px;top:80px;width:240px;height:300px"></div></body></html>')
     [IO.File]::WriteAllText((Join-Path $plugin 'app.mjs'),"import {registerNativePreviewSlot} from 'reff://shell/shared/reff-ui.mjs';const call=(m,p={})=>window.reffNativeCall(m,p);while(!(await call('ui.status')).ready)await new Promise(r=>setTimeout(r,25));await registerNativePreviewSlot({call},document.getElementById('portrait'),'portrait');await call('example.vue.get');")
     $mode='production-preview'

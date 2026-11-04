@@ -87,7 +87,7 @@
   data=await child('scroll');await capture(data,{overlay:true});
   data=await child('zoom');await capture(data);
   await capture(data,{provider:false});await capture(data,{provider:true,rebuild:true});
-  // 模拟 Core 在 F8 重开时确认同尺寸新代次，并在另一轮改变视口；只操作自有宿主 IPC。
+  // 模拟 Core 在 快捷键 重开时确认同尺寸新代次，并在另一轮改变视口；只操作自有宿主 IPC。
   await call('test.finished',{checkpoint:'input',messages:[{type:'visible',value:false},{type:'viewport',width:1458,height:818,generation:3},{type:'visible',value:true}]});
   await pause(400);await capture(data);
   await call('test.finished',{checkpoint:'input',messages:[{type:'viewport',width:1280,height:720,generation:4}]});

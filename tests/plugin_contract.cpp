@@ -102,14 +102,14 @@ int wmain(int argc, wchar_t** argv) {
         SendMessageW(window, cursor_message, 0, 0);
         if (cursor_messages_forwarded != 1 || SendMessageW(window, WM_APP + 1, 0, 0) != 42)
             throw std::runtime_error("cursor message dispatch broke window chain");
-        // 在无宿主安装的测试目录触发真实 DLL 启动失败，验证释放与下一次 F8 重试。
+        // 在无宿主安装的测试目录触发真实 DLL 启动失败，验证释放与下一次 Home 重试。
         const auto missing_host = std::filesystem::absolute(argv[1]).parent_path().parent_path() / L"reff/reff-webview2-host.exe";
         if (std::filesystem::exists(missing_host)) throw std::runtime_error("failure fixture unexpectedly contains a host");
         for (int attempt = 1; attempt <= 2; ++attempt) {
-            message(window, WM_KEYDOWN, VK_F8, 0);
+            message(window, WM_KEYDOWN, VK_HOME, 0);
             const auto deadline = GetTickCount64() + 3000;
             while (startup_failures.load() < attempt && GetTickCount64() < deadline) Sleep(10);
-            if (startup_failures.load() != attempt) throw std::runtime_error("F8 retry did not complete failure cleanup");
+            if (startup_failures.load() != attempt) throw std::runtime_error("Home retry did not complete failure cleanup");
             check_script("assert(not reff_native.is_visible()); assert(not reff_native.is_ready()); assert(reff_native.poll()==nil)");
             if (!message(window, WM_KEYDOWN, 'A', 0) || !message(window, WM_LBUTTONDOWN, 0, 0))
                 throw std::runtime_error("failed host still captures input");

@@ -13,7 +13,7 @@ REFF 是 REFramework 的扩展，不替换或修改 REFramework 原有菜单和�
 
 ## 支持范围
 
-v1.0.1 正式版默认面向全部 RE Engine 游戏，统一使用一个核心包；游戏须已接入 REFramework，并以 **D3D12** 运行。未列出的 REFramework 目标使用通用档案。D3D11 绘制后端尚未实现。
+v1.0.2 正式版默认面向全部 RE Engine 游戏，统一使用一个核心包；游戏须已接入 REFramework，并以 **D3D12** 运行。未列出的 REFramework 目标使用通用档案。D3D11 绘制后端尚未实现。
 
 | 游戏 | 状态 |
 | --- | --- |
@@ -27,9 +27,9 @@ v1.0.1 正式版默认面向全部 RE Engine 游戏，统一使用一个核心�
 
 先安装对应游戏的 [REFramework](https://github.com/praydog/REFramework)，使用 Windows 10 22H2 或更新系统，并以 **D3D12** 运行游戏。
 
-1. 从 [Releases](https://github.com/Monkeysama/REFF/releases/latest) 下载 `REFF-1.0.1.zip`。
+1. 从 [Releases](https://github.com/Monkeysama/REFF/releases/latest) 下载 `REFF-1.0.2.zip`。
 2. 退出游戏，把包内的 `reframework` 文件夹解压到游戏根目录，与已有文件夹合并，提示时覆盖同名 REFF 文件。
-3. 启动游戏，关闭 REFramework 原生菜单，按 **F8** 打开 REFF；按 **F8** 或 **Esc** 关闭。
+3. 启动游戏，关闭 REFramework 原生菜单，按 **Home** 打开 REFF；按 **Home** 或 **Esc** 关闭。已有用户保存的快捷键会保留，可在 REFF 设置中修改。
 
 通常无需额外安装 WebView2。Windows 11 已预装，绝大多数 Windows 10 设备也已安装，REFF 会直接使用系统共享的运行时。只有日志提示运行时缺失或版本过旧时，才需要从 [Microsoft 官方页面](https://developer.microsoft.com/microsoft-edge/webview2/) 安装或更新 **WebView2 Evergreen Runtime**。
 

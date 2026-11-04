@@ -3,7 +3,7 @@
 
 namespace reff {
 // 服务线程独占的宿主监控：握手最多等待 15 秒，已建立的连接断开立即结束会话。
-// 不自动重试；用户下一次 F8 才创建新进程，避免故障循环和写请求重放。
+// 不自动重试；用户下一次 快捷键 才创建新进程，避免故障循环和写请求重放。
 class HostHealth {
 public:
     void started(std::uint64_t now) { started_at_ = now; }

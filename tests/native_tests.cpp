@@ -49,7 +49,7 @@ int main() {
         snapshot = viewport.snapshot();
         require(viewport.refresh([](auto) { return true; }) && viewport.snapshot().width == snapshot.width &&
             viewport.snapshot().height == snapshot.height && viewport.snapshot().generation == snapshot.generation + 1,
-            "F8 refresh confirms unchanged size with new generation");
+            "hotkey refresh confirms unchanged size with new generation");
         // 默认正式构建接受全部目录目标及通用目标，未测试状态不影响启用；保留实际后端检查。
         for (const auto& entry : reff::game_catalog) {
             const auto profile = reff::game_profile_for(entry.target);
@@ -170,6 +170,8 @@ int main() {
             require(warning.empty() && settings.snapshot().value("language", "") == "zh-CN" &&
                 settings.snapshot()["appearance"].value("textScale", 0.0) == 1.0 &&
                 settings.snapshot()["startup"].value("preload", false), "settings defaults");
+            require(settings.snapshot()["hotkey"]["key"]==VK_HOME && settings.snapshot()["hotkey"]["modifiers"]==0, "new settings default to Home");
+            require(settings.update({{"hotkey",{{"key",VK_F8},{"modifiers",0}}}},error), "existing F8 binding accepted");
             require(!settings.update({{"unknown", true}}, error), "unknown settings rejected");
             require(settings.plugin_layout("example.vue")["padding"]==24, "default plugin padding is 24");
             require(settings.set_plugin_padding("example.vue",0,error) && settings.plugin_layout("example.vue")["padding"]==0,
@@ -199,6 +201,7 @@ int main() {
             const auto restored = loaded.restored_geometry(2560, 1440);
             require(warning.empty() && loaded.snapshot()["input"].value("mousePassthrough", false) &&
                 !loaded.snapshot()["startup"].value("preload", true), "settings persisted");
+            require(loaded.snapshot()["hotkey"]["key"]==VK_F8, "existing saved F8 binding retained after upgrade");
             require(restored && restored->left == 640 && restored->top == 293 && restored->width == 1280 && restored->height == 853,
                 "settings geometry scaled");
             require(loaded.snapshot()["layout"]["pluginPadding"]==0 && loaded.snapshot()["navigation"]["lastPluginId"]=="example.vue", "layout and last plugin persisted");
