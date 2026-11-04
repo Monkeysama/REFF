@@ -10,13 +10,13 @@ export function createNativePreviewProjection(client: ReffClient, currentFrame: 
     if (stopped) return;
     const iframe = currentFrame();
     if (source && iframe && !busy) {
-      const outer = previewElementBounds(iframe), scaleX = (outer?.rect[2] || 0) / source.viewportWidth, scaleY = (outer?.rect[3] || 0) / source.viewportHeight;
-      const project = (b: PreviewBox): PreviewBox => [(outer?.rect[0] || 0) + b[0] * scaleX, (outer?.rect[1] || 0) + b[1] * scaleY, b[2] * scaleX, b[3] * scaleY];
-      const slots = outer ? source.slots.map(slot => {
-        const clip = project(slot.clip), boundary = outer.clip;
-        const x = Math.max(clip[0], boundary[0]), y = Math.max(clip[1], boundary[1]);
-        return { slotId: slot.slotId, rect: project(slot.rect), clip: [x, y, Math.min(clip[0] + clip[2], boundary[0] + boundary[2]) - x, Math.min(clip[1] + clip[3], boundary[1] + boundary[3]) - y] };
-      }).filter(slot => slot.clip[2] > 0 && slot.clip[3] > 0) : [];
+      const box = iframe.getBoundingClientRect(), scaleX = box.width / source.viewportWidth, scaleY = box.height / source.viewportHeight;
+      const project = (b: PreviewBox): PreviewBox => [box.x + b[0] * scaleX, box.y + b[1] * scaleY, b[2] * scaleX, b[3] * scaleY];
+      // 按每个槽位检查祖先裁剪，不能用铺满正文的 iframe 是否触及角区代替槽位自身的判断。
+      const slots = source.slots.flatMap(slot => {
+        const outer = previewElementBounds(iframe, project(slot.clip));
+        return outer ? [{ slotId: slot.slotId, rect: project(slot.rect), clip: outer.clip }] : [];
+      });
       const params = { pageId: source.pageId, viewportWidth: innerWidth, viewportHeight: innerHeight, slots };
       const signature = JSON.stringify(params);
       if (signature !== previous || now - sent > 200) {

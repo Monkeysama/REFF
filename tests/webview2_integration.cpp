@@ -88,7 +88,8 @@ void save_capture(const std::filesystem::path& path,const std::vector<std::uint8
 int wmain(int argc,wchar_t** argv){
     if(argc!=4&&argc!=5)return 2;
     const bool behavior=argc==5;
-    const bool preview=argc==5&&std::wstring(argv[4])==L"preview";
+    const bool production=argc==5&&std::wstring(argv[4])==L"production-preview";
+    const bool preview=production||(argc==5&&std::wstring(argv[4])==L"preview");
     try{
         const auto root=std::filesystem::absolute(argv[1]),fixture=std::filesystem::absolute(argv[2]),host=std::filesystem::absolute(argv[3]);
         const auto session=make_session();SharedFrame frame;frame.open(session,true);
@@ -117,6 +118,9 @@ int wmain(int argc,wchar_t** argv){
             L" --reff-assets=\""+(fixture/L"outside").wstring()+L"\""+
             L" --reff-test-script=\""+(fixture/L"ui/shared/p1-test.js").wstring()+L"\" --reff-manifests=\""+(fixture/L"plugins").wstring()+
             L"\" --reff-cache=\""+cache.wstring()+L"\" --reff-game=MHWILDS";
+        // 正式入口不启用 selftest 或注入脚本；隔离页从自己的模块注册槽位。
+        if(production)command=L"\""+host.wstring()+L"\" --reff-session="+session+L" --reff-manifests=\""+
+            (fixture/L"plugins").wstring()+L"\" --reff-cache=\""+cache.wstring()+L"\" --reff-game=MHWILDS";
         Handle job(CreateJobObjectW(nullptr,nullptr));JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
         limits.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         if(!SetInformationJobObject(job.get(),JobObjectExtendedLimitInformation,&limits,sizeof(limits)))throw std::runtime_error("job creation failed");
@@ -129,6 +133,9 @@ int wmain(int argc,wchar_t** argv){
         const auto settings_path=fixture/L"data/REFF/settings.json";
         settings.open(settings_path,settings_error);
         if(!settings_error.empty())throw std::runtime_error(settings_error);
+        if((production||preview)&&!settings.update({{"appearance",{{"cornerRadius",6},{"surfaceBlur",8},{"textScale",production?1.2:1.4}}},
+            {"layout",{{"sidebarCollapsed",true},{"headerCollapsed",true},{"pluginPadding",0}}},
+            {"navigation",{{"rememberLastPlugin",true},{"lastPluginId","example.vue"}}}},settings_error))throw std::runtime_error(settings_error);
         const auto begun=GetTickCount64();Json result;std::set<std::string> handles;std::vector<Json> requests;
         bool reset_armed=false,reset_executed=false,prewarmed=false;std::string invalidated_request;
         std::uint64_t sequence{},generation{};std::vector<std::uint8_t> pixels;int width{},height{},frames{},layout_captures{};
@@ -136,12 +143,12 @@ int wmain(int argc,wchar_t** argv){
         WindowRegions drag_regions;
         std::unique_ptr<reff::test::PreviewGpu> preview_gpu;if(preview)preview_gpu=std::make_unique<reff::test::PreviewGpu>();
         std::uint64_t preview_revision{};int preview_checks{};
-        while(GetTickCount64()-begun<60000){
+        while(GetTickCount64()-begun<(production?30000:60000)){
             while(auto message=wire.pop()){
                 const auto type=message->value("type",std::string{});
                 if(type=="preview_state"){preview_revision=message->value("revision",0ull);}
                 else if(type=="hello"){channel.send({{"type","ready"},{"ready",true},{"epoch",1}});
-                    channel.send({{"type","visible"},{"value",!behavior}});channel.send({{"type","viewport"},{"width",960},{"height",640},{"generation",1}});}
+                    channel.send({{"type","visible"},{"value",production||!behavior}});channel.send({{"type","viewport"},{"width",production?1458:960},{"height",production?818:640},{"generation",1}});}
                 else if(type=="window_regions"){
                     if(const auto parsed=WindowRegions::parse((*message)["regions"]))drag_regions=*parsed;
                 }
@@ -182,7 +189,7 @@ int wmain(int argc,wchar_t** argv){
                     if(preview&&checkpoint=="preview-capture"){
                         const auto& expected=(*message)["result"];
                         std::uint64_t seq=0,vg{};int fw{},fh{};PreviewFrame metadata;std::vector<std::uint8_t> web;
-                        if(!frame.read(web,seq,fw,fh,vg,0,&metadata)||metadata.revision!=preview_revision||metadata.count!=expected.value("count",0u))throw std::runtime_error("preview frame/revision/count not confirmed: "+std::to_string(metadata.count)+" revision="+std::to_string(metadata.revision)+"/"+std::to_string(preview_revision));
+                        if(!frame.read(web,seq,fw,fh,vg,0,&metadata)||metadata.revision!=preview_revision||metadata.count!=expected.value("count",0u))throw std::runtime_error("preview frame/revision/count not confirmed: "+std::to_string(metadata.count)+" revision="+std::to_string(metadata.revision)+"/"+std::to_string(preview_revision)+" expected="+expected.dump()+" clip="+Json::array({metadata.slots[0].clip.x,metadata.slots[0].clip.y,metadata.slots[0].clip.width,metadata.slots[0].clip.height}).dump());
                         if(expected.contains("provider")){if(expected["provider"].get<bool>())preview_gpu->enable();else preview_gpu->disable();}
                         if(expected.value("rebuild",false))preview_gpu->rebuild();
                         if(metadata.count){
@@ -235,7 +242,19 @@ int wmain(int argc,wchar_t** argv){
                 }
             }
             lua_rawgeti(state,LUA_REGISTRYINDEX,update_ref);if(lua_pcall(state,0,0,0))throw std::runtime_error(lua_tostring(state,-1));
-            if(frame.read(pixels,sequence,width,height,generation))++frames;
+            PreviewFrame production_frame;
+            if(frame.read(pixels,sequence,width,height,generation,0,&production_frame)){
+                ++frames;
+                if(production&&production_frame.count==1&&production_frame.revision==preview_revision){
+                    auto output=preview_gpu->render(frame,width,height,generation,preview_revision);
+                    const auto clip=production_frame.slots[0].clip;const int x=int(clip.x+clip.width/2),y=int(clip.y+clip.height/2);
+                    const auto* p=output.data()+(y*reff::test::PreviewGpu::width+x)*4;
+                    if(p[0]!=0||p[1]!=255||p[2]!=0||preview_gpu->draws<1)throw std::runtime_error("production preview GPU pixel mismatch");
+                    for(std::size_t i=0;i<output.size();i+=4)std::swap(output[i],output[i+2]);
+                    save_capture(fixture/"production-preview.bmp",output,reff::test::PreviewGpu::width,reff::test::PreviewGpu::height);
+                    result={{"passed",true},{"productionHost",true},{"selfTestEnabled",false},{"cornerRadius",6},{"surfaceBlur",8},{"textScale",1.2},{"confirmedSlots",1}};
+                }
+            }
             if(!result.is_null()||WaitForSingleObject(process.get(),0)==WAIT_OBJECT_0)break;Sleep(8);
         }
         // 每个历史内部句柄应已被文档销毁撤销；直接询问真实 Lua 注册表，不能只看宿主计数。
@@ -251,15 +270,17 @@ int wmain(int argc,wchar_t** argv){
         const bool no_replay=behavior||(reset_executed&&std::count_if(requests.begin(),requests.end(),[&](const auto& value){return value["id"]==invalidated_request;})==1);
         const bool no_proxy=behavior||std::none_of(requests.begin(),requests.end(),[](const auto& value){return value["method"]=="reff.settings.reset";});
         report["resetExecuted"]=reset_executed;report["noWriteReplay"]=no_replay;report["noParentPrivilegeBypass"]=no_proxy;
-        // 新布局夹具检验静态截图与命中点；核心/输入回归仍保留至少五帧的连续交付要求。
-        const bool output_valid = result.contains("layoutPhase") ? layout_captures > 0 && frames > 0 : frames >= 5;
+        // 正式静态页面无动画时 WGC 不会重复交付；以已确认槽位及真实 GPU 像素为准。核心/输入仍要求连续五帧。
+        const bool output_valid = production ? frames > 0 && preview_gpu->draws > 0 : result.contains("layoutPhase") ? layout_captures > 0 && frames > 0 : frames >= 5;
         report["layoutCaptures"] = layout_captures;
         report["previewChecks"]=preview_checks;if(preview)report["previewDraws"]=preview_gpu->draws;
         report["passed"]=!result.is_null()&&result.value("passed",false)&&output_valid&&clean&&graceful&&no_replay&&no_proxy;
         report["behaviorMode"]=behavior;
         report["embeddedShell"]=true;
         report["hiddenInitializationPassed"]=prewarmed;
-        if(behavior)report["passed"]=report["passed"].get<bool>()&&prewarmed;
+        if(behavior&&!production)report["passed"]=report["passed"].get<bool>()&&prewarmed;
+        if(production){report["mode"]="production-preview";report["behaviorMode"]=false;for(const auto* key:{"hiddenInitializationPassed","noWriteReplay","noParentPrivilegeBypass","resetExecuted"})report.erase(key);}
+        if(production&&result.is_null())report["browser"]={{"passed",false},{"error","production preview never reached confirmed slot"},{"productionHost",true},{"selfTestEnabled",false},{"cornerRadius",6}};
         std::ofstream(fixture/"integration-summary.json")<<report.dump(2);
         std::cout<<report.dump(2)<<'\n';return report["passed"].get<bool>()?0:1;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

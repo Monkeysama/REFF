@@ -19,6 +19,8 @@
      await call('ui.preview.register',{slotId:'../bad'}).then(()=>{throw Error('unsafe slot registered');},e=>check(e.code==='INVALID_ARGUMENT','unsafe slot rejected'));
     }
     if(args.action==='scroll')document.getElementById('scroll').scrollTop=40;
+    if(args.action==='corner'){document.getElementById('scroll').style.cssText='position:fixed;right:0;bottom:0;width:240px;height:180px;overflow:hidden';document.getElementById('slot').style.top='0';}
+    if(args.action==='uncorner'){document.getElementById('scroll').style.cssText='position:absolute;left:20px;top:60px;width:240px;height:180px;overflow:hidden';document.getElementById('slot').style.top='30px';}
     if(args.action==='zoom')document.body.style.zoom='1.25';
     if(args.action==='hide')document.getElementById('slot').style.display='none';
     if(args.action==='show')document.getElementById('slot').style.display='block';
@@ -37,7 +39,6 @@
  }
  try{
   await wait(()=>document.querySelector('[data-plugin-id="example.vue"]'),'menu');
-  await call('reff.settings.set',{appearance:{surfaceBlur:0,cornerRadius:0},layout:{sidebarCollapsed:false,headerCollapsed:false,sidebarCompact:true,pluginPadding:24}});
   let childReady=null;addEventListener('message',e=>{if(e.source===document.querySelector('iframe')?.contentWindow&&e.data?.type==='preview-test-ready')childReady=e.data;});
   const select=async id=>{childReady=null;document.querySelector(`[data-plugin-id="${id}"]`).click();if(id!=='reff.settings')await wait(()=>childReady,'child navigation');await pause(120);};
   await select('example.vue');await wait(()=>document.querySelector('iframe'),'iframe');
@@ -55,15 +56,17 @@
    const captureId=++sequence;await new Promise((resolve,reject)=>{
     const listener=e=>{if(e.data?.kind==='test-ack'&&e.data.id===captureId){clearTimeout(timer);chrome.webview.removeEventListener('message',listener);resolve();}};
     const timer=setTimeout(()=>{chrome.webview.removeEventListener('message',listener);reject(Error('GPU capture acknowledgement timeout'));},5000);chrome.webview.addEventListener('message',listener);
-    call('test.finished',{checkpoint:'preview-capture',captureId,count:data?1:0,rect,clip,samples,...options}).catch(reject);
+    call('test.finished',{checkpoint:'preview-capture',rootRadius:getComputedStyle(document.querySelector('.reff-shell')).borderRadius,rootBox:box(document.querySelector('.reff-shell').getBoundingClientRect()),frameBox:r?box(r):null,captureId,count:data?1:0,rect,clip,samples,...options}).catch(reject);
    });
   };
   let data=await child('init');await capture(data,{overlay:true});
   const duplicate={slotId:'portrait',rect:[100,180,100,100],clip:[100,180,100,100]};
   await call('ui.preview.present',{pageId:data.pageId,viewportWidth:innerWidth,viewportHeight:innerHeight,slots:[duplicate,duplicate]}).then(()=>{throw Error('overlapping slots accepted');},e=>check(e.code==='OVERLAPPING_SLOTS','overlap rejected'));
   for(const unsupported of ['opacity','rotate','round']){await child(unsupported);await capture(null);data=await child('restore');await capture(data);}
+  // 全局圆角可保留；只有实际进入 Shell 曲线角区的槽位才停画，不能把 iframe 整体当作槽位。
+  await child('corner');await capture(null);
+  data=await child('uncorner');await capture(data);
   data=await child('scroll');await capture(data,{overlay:true});
-  await call('reff.settings.set',{appearance:{textScale:1.4},layout:{sidebarCompact:false}});await pause(300);await capture(data);
   data=await child('zoom');await capture(data);
   await capture(data,{provider:false});await capture(data,{provider:true,rebuild:true});
   // 模拟 Core 在 F8 重开时确认同尺寸新代次，并在另一轮改变视口；只操作自有宿主 IPC。

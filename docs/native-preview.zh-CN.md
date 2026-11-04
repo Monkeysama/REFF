@@ -22,7 +22,7 @@ preview.dispose();
 - `ui.preview.register/remove` 只对当前隔离页生效；`ui.preview.present` 仅 Shell 可调用。页面不能自行指定另一个插件的原生身份。
 - 进程最多注册 4 个原生提供者；每页同时最多 4 个**互不重叠的可见矩形**；重叠投影停画。无提供者时只显示原网页，不报致命错误。
 
-v1 支持滚动容器的矩形 overflow 裁剪、平移、正向轴对齐缩放和 CSS zoom。不支持旋转、透视、负缩放、clip-path、mask、祖先 opacity 小于 1、filter、paint containment 或带圆角的 overflow 裁剪；这些状态停画，不能用外包矩形冒充正确裁剪。需要圆角时先将槽位设计为矩形，或保留原预览路径。
+v1 支持滚动容器的矩形 overflow 裁剪、平移、正向轴对齐缩放和 CSS zoom。不支持旋转、透视、负缩放、clip-path、mask、祖先 opacity 小于 1、filter、paint containment 或触及圆角 overflow 的曲线角区；这些状态停画，不能用外包矩形冒充正确裁剪。全局 Shell 圆角可以保持开启；按每个槽位的实际可见区域判断，不因 iframe 覆盖整个正文而停掉内部安全矩形。
 
 ## 原生插件查询 C ABI
 
