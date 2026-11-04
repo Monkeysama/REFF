@@ -46,7 +46,7 @@ Json SettingsStore::defaults() {
     appearance["textScale"] = 1.0;
     return {{"schemaVersion", 1}, {"language", "zh-CN"}, {"hotkey", {{"key", VK_F8}, {"modifiers", 0}}}, {"appearance", appearance},
             {"startup", {{"preload", true}}},
-            {"layout", {{"sidebarCollapsed", true}, {"headerCollapsed", true}, {"pluginPadding", 24}, {"pluginPaddingOverrides", Json::object()}}},
+            {"layout", {{"sidebarCollapsed", false}, {"headerCollapsed", true}, {"sidebarCompact", true}, {"headerCompact", false}, {"pluginPadding", 24}, {"pluginPaddingOverrides", Json::object()}}},
             {"navigation", {{"rememberLastPlugin", true}, {"lastPluginId", "reff.settings"}}},
             {"input", {{"mousePassthrough", false}, {"keyboardPassthrough", false}}},
             {"window", {{"rememberGeometry", true}}}};
@@ -76,9 +76,12 @@ bool SettingsStore::validate_document(Json& value, std::string& error) {
     // 新布局分组在旧配置中补默认值，保持已有主题、输入和窗口记录不变。
     for (const auto* group : {"layout", "navigation"}) if (!value.contains(group)) value[group] = defaults()[group];
     auto& layout = value["layout"];
+    // 保留旧 Collapsed 字段的自动隐藏含义；半折叠使用独立字段，不覆盖已有显隐偏好。
+    for (const auto* key : {"sidebarCompact", "headerCompact"}) if (!layout.contains(key)) layout[key] = defaults()["layout"][key];
     if (!layout.contains("pluginPaddingOverrides")) layout["pluginPaddingOverrides"] = Json::object();
-    if (!known_keys(layout, {"sidebarCollapsed", "headerCollapsed", "pluginPadding", "pluginPaddingOverrides"}) ||
+    if (!known_keys(layout, {"sidebarCollapsed", "headerCollapsed", "sidebarCompact", "headerCompact", "pluginPadding", "pluginPaddingOverrides"}) ||
         !layout.value("sidebarCollapsed", Json()).is_boolean() || !layout.value("headerCollapsed", Json()).is_boolean() ||
+        !layout.value("sidebarCompact", Json()).is_boolean() || !layout.value("headerCompact", Json()).is_boolean() ||
         !layout.value("pluginPadding", Json()).is_number_integer() || !finite_number(layout["pluginPadding"], 0, 48)) {
         error = "layout 字段不合法"; return false;
     }
@@ -210,7 +213,7 @@ bool SettingsStore::update(const Json& patch, std::string& error) {
     for (const auto* group : {"layout", "navigation"}) {
         if (!patch.contains(group)) continue;
         const bool valid = std::string_view(group) == "layout"
-            ? known_keys(patch[group], {"sidebarCollapsed", "headerCollapsed", "pluginPadding", "pluginPaddingOverrides"})
+            ? known_keys(patch[group], {"sidebarCollapsed", "headerCollapsed", "sidebarCompact", "headerCompact", "pluginPadding", "pluginPaddingOverrides"})
             : known_keys(patch[group], {"rememberLastPlugin", "lastPluginId"});
         if (!valid) { error = "布局或导航补丁包含未知字段"; return false; }
         for (const auto& [key, item] : patch[group].items()) {

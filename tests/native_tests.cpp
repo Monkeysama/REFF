@@ -150,9 +150,12 @@ int main() {
             require(!settings.set_plugin_padding("example.vue",49,error) && !settings.set_plugin_padding("example.vue",1.5,error), "plugin range validation");
             require(settings.set_plugin_padding("example.vue",nullptr,error) && settings.plugin_layout("example.vue")["override"].is_null(), "plugin inherits after null");
             require(settings.plugin_layout("example.react")["padding"]==48, "clearing preserves another plugin override");
-            require(settings.snapshot()["layout"]["sidebarCollapsed"]==true && settings.snapshot()["layout"]["headerCollapsed"]==true &&
-                settings.snapshot()["navigation"]["rememberLastPlugin"]==true, "compact and remembered navigation defaults");
-            require(settings.update({{"layout",{{"sidebarCollapsed",false},{"pluginPadding",0}}},{"navigation",{{"lastPluginId","example.vue"}}}},error), "layout navigation patch");
+            require(settings.snapshot()["layout"]["sidebarCollapsed"]==false && settings.snapshot()["layout"]["headerCollapsed"]==true &&
+                settings.snapshot()["layout"]["sidebarCompact"]==true && settings.snapshot()["layout"]["headerCompact"]==false &&
+                settings.snapshot()["navigation"]["rememberLastPlugin"]==true, "independent compact and auto-hide defaults");
+            require(settings.update({{"layout",{{"sidebarCollapsed",true},{"sidebarCompact",false},{"headerCompact",true},{"pluginPadding",0}}},{"navigation",{{"lastPluginId","example.vue"}}}},error), "layout navigation patch");
+            require(!settings.update({{"layout",{{"sidebarCompact",1}}}},error), "compact requires boolean");
+            require(!settings.update({{"layout",{{"headerCompact",nullptr}}}},error), "header compact requires boolean");
             require(!settings.update({{"layout",{{"pluginPadding",49}}}},error), "padding upper bound");
             require(!settings.update({{"layout",{{"pluginPadding",1.5}}}},error), "padding integer required");
             require(!settings.update({{"navigation",{{"lastPluginId","../bad"}}}},error), "navigation id rejected");
@@ -171,14 +174,16 @@ int main() {
                 "settings geometry scaled");
             require(loaded.snapshot()["layout"]["pluginPadding"]==0 && loaded.snapshot()["navigation"]["lastPluginId"]=="example.vue", "layout and last plugin persisted");
             require(loaded.plugin_layout("example.react")["padding"]==48, "plugin override persisted");
-            auto previous=loaded.snapshot();previous["layout"]["pluginPadding"]=12;previous["layout"].erase("pluginPaddingOverrides");
+            require(loaded.snapshot()["layout"]["sidebarCollapsed"]==true && loaded.snapshot()["layout"]["sidebarCompact"]==false && loaded.snapshot()["layout"]["headerCompact"]==true, "independent chrome preferences persisted");
+            auto previous=loaded.snapshot();previous["layout"]["pluginPadding"]=12;previous["layout"].erase("pluginPaddingOverrides");previous["layout"].erase("sidebarCompact");previous["layout"].erase("headerCompact");
             { std::ofstream stream(path);stream<<previous.dump(); }
             loaded.open(path,warning);
             require(loaded.plugin_layout("example.vue")["padding"]==12 && loaded.snapshot()["layout"]["pluginPaddingOverrides"].empty(), "previous explicit padding preserved");
+            require(loaded.snapshot()["layout"]["sidebarCollapsed"]==true && loaded.snapshot()["layout"]["sidebarCompact"]==true && loaded.snapshot()["layout"]["headerCompact"]==false, "legacy auto-hide preferences retained with compact defaults");
             auto old=loaded.snapshot();old.erase("layout");old.erase("navigation");
             { std::ofstream stream(path);stream<<old.dump(); }
             loaded.open(path,warning);
-            require(warning.empty() && loaded.snapshot()["language"]=="en-US" && loaded.snapshot()["layout"]["sidebarCollapsed"]==true &&
+            require(warning.empty() && loaded.snapshot()["language"]=="en-US" && loaded.snapshot()["layout"]["sidebarCollapsed"]==false &&
                 loaded.snapshot()["navigation"]["rememberLastPlugin"]==true, "old settings migrate without losing user values");
             std::filesystem::remove_all(directory, ignored);
         }

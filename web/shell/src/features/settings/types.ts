@@ -8,7 +8,8 @@ export type ReffSettings = {
   startup: {
     preload: boolean;
   };
-  layout: { sidebarCollapsed: boolean; headerCollapsed: boolean; pluginPadding: number; pluginPaddingOverrides: Record<string, number> };
+  // Collapsed 沿用旧版自动隐藏语义；Compact 仅控制栏的半折叠尺寸。
+  layout: { sidebarCollapsed: boolean; headerCollapsed: boolean; sidebarCompact: boolean; headerCompact: boolean; pluginPadding: number; pluginPaddingOverrides: Record<string, number> };
   navigation: { rememberLastPlugin: boolean; lastPluginId: string };
   input: {
     mousePassthrough: boolean;

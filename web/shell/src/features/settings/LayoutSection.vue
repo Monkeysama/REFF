@@ -25,7 +25,9 @@ function changePadding(value: number | null) {
 <template>
   <section class="layout-section">
     <h2>{{ t('layout') }}</h2>
+    <label class="layout-row"><span>{{ t('sidebarCompact') }}</span><el-switch :aria-label="t('sidebarCompact')" :model-value="layout.sidebarCompact" @change="emit('change', { sidebarCompact: Boolean($event) })" /></label>
     <label class="layout-row"><span>{{ t('sidebarCollapsed') }}</span><el-switch :aria-label="t('sidebarCollapsed')" :model-value="layout.sidebarCollapsed" @change="emit('change', { sidebarCollapsed: Boolean($event) })" /></label>
+    <label class="layout-row"><span>{{ t('headerCompact') }}</span><el-switch :aria-label="t('headerCompact')" :model-value="layout.headerCompact" @change="emit('change', { headerCompact: Boolean($event) })" /></label>
     <label class="layout-row"><span>{{ t('headerCollapsed') }}</span><el-switch :aria-label="t('headerCollapsed')" :model-value="layout.headerCollapsed" @change="emit('change', { headerCollapsed: Boolean($event) })" /></label>
     <div class="padding-target">
       <label for="padding-target">{{ t('paddingTarget') }}</label>
