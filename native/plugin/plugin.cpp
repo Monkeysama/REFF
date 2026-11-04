@@ -8,6 +8,7 @@
 #include "mouse_click.hpp"
 #include "settings.hpp"
 #include "window_regions.hpp"
+#include "viewport.hpp"
 #include "keyboard_capture.hpp"
 #include "keyboard_event.hpp"
 #include "game_profile.hpp"
@@ -78,9 +79,8 @@ struct Runtime {
     std::mutex request_mutex;
     std::atomic_int left{}, top{}, right{}, bottom{};
     std::atomic_int panel_display_width{panel_width}, panel_display_height{panel_height};
-    std::atomic_int viewport_width{panel_width}, viewport_height{panel_height};
-    // viewport_generation 与浏览器宿主和共享帧同步；窗口线程递增，Present 线程只读取。
-    std::atomic_uint64_t viewport_generation{1};
+    // 握手、窗口输入和 Present 共享完整视口快照，避免旧宽高混入新代次。
+    ViewportState viewport;
     std::uint64_t last_viewport_commit_tick{};
     // 面板位置由窗口线程拖动、Present 线程裁剪；只保存客户区坐标，关闭后在本次进程内保留。
     std::atomic_int panel_origin_left{-1}, panel_origin_top{-1};
@@ -390,7 +390,8 @@ bool map_virtual_cursor_to_panel(int x, int y, int& panel_x, int& panel_y) {
     const int right = runtime->right.load();
     const int bottom = runtime->bottom.load();
     if (right <= left || bottom <= top || x < left || x >= right || y < top || y >= bottom) return false;
-    const int content_width = std::max(1, runtime->viewport_width.load()), content_height = std::max(1, runtime->viewport_height.load());
+    const auto viewport = runtime->viewport.snapshot();
+    const int content_width = std::max(1, viewport.width), content_height = std::max(1, viewport.height);
     panel_x = std::clamp((x - left) * content_width / (right - left), 0, content_width - 1);
     panel_y = std::clamp((y - top) * content_height / (bottom - top), 0, content_height - 1);
     return true;
@@ -497,16 +498,21 @@ void update_panel_drag(int x, int y) {
 
 // 将最新面板尺寸发送给 浏览器；拖动时按 16ms 合并，释放时 force 确保最后一个尺寸立即提交。
 void commit_viewport_resize(bool force) {
-    const int width = std::clamp(runtime->panel_display_width.load(), 320, frame_max_width);
-    const int height = std::clamp(runtime->panel_display_height.load(), 240, frame_max_height);
-    if (width == runtime->viewport_width.load() && height == runtime->viewport_height.load()) return;
+    int width{}, height{};
+    {
+        std::lock_guard geometry_lock(runtime->panel_geometry_mutex);
+        width = std::clamp(runtime->panel_display_width.load(), 320, frame_max_width);
+        height = std::clamp(runtime->panel_display_height.load(), 240, frame_max_height);
+    }
     const auto now = GetTickCount64();
     if (!force && runtime->last_viewport_commit_tick && now - runtime->last_viewport_commit_tick < 16) return;
-    const auto generation = runtime->viewport_generation.load(std::memory_order_relaxed) + 1;
-    if (!runtime->channel.send_priority_latest({{"type", "viewport"}, {"width", width}, {"height", height}, {"generation", generation}})) return;
-    resize_log("viewport_send generation=" + std::to_string(generation) + " size=" + std::to_string(width) + "x" + std::to_string(height));
-    runtime->viewport_width = width; runtime->viewport_height = height; runtime->viewport_generation = generation;
-    runtime->last_viewport_commit_tick = now;
+    if (runtime->viewport.update(width, height, [](const ViewportSnapshot& next) {
+        return runtime->channel.send_priority_latest(next.message());
+    })) {
+        const auto next = runtime->viewport.snapshot();
+        resize_log("viewport_send generation=" + std::to_string(next.generation) + " size=" + std::to_string(next.width) + "x" + std::to_string(next.height));
+        runtime->last_viewport_commit_tick = now;
+    }
 }
 
 void end_panel_drag() {
@@ -548,6 +554,10 @@ void set_visible(bool visible) {
     refresh_keyboard_capture();
     if (visible) runtime->start_requested = true;
     if (runtime->connected) {
+        // F8 重开不仅恢复显隐，还以新代次重新确认尺寸；优先队列保证重排不被普通输入拖延。
+        if (visible) runtime->viewport.refresh([](const ViewportSnapshot& next) {
+            return runtime->channel.send_priority_latest(next.message());
+        });
         runtime->channel.send({{"type", "visible"}, {"value", visible}});
     }
     request_cursor_sync();
@@ -662,7 +672,8 @@ void map_ime_bounds(Json& value) {
     const int panel_top = runtime->top.load();
     const int panel_width_pixels = std::max(1, runtime->right.load() - panel_left);
     const int panel_height_pixels = std::max(1, runtime->bottom.load() - panel_top);
-    const int content_width = std::max(1, runtime->viewport_width.load()), content_height = std::max(1, runtime->viewport_height.load());
+    const auto viewport = runtime->viewport.snapshot();
+    const int content_width = std::max(1, viewport.width), content_height = std::max(1, viewport.height);
     const int x = std::clamp(value.value("x", 0), 0, content_width - 1);
     const int y = std::clamp(value.value("y", 0), 0, content_height - 1);
     const int width = std::clamp(value.value("width", 1), 1, content_width);
@@ -778,8 +789,7 @@ void receive(Json value) {
             { std::lock_guard lock(runtime->panel_geometry_mutex); runtime->window_regions = {}; }
             compatibility_log("host handshake=ok protocol=" + std::to_string(protocol_version));
             // 新宿主从默认视口启动，必须重新发送保留的窗口尺寸与代次。
-            runtime->channel.send({{"type", "viewport"}, {"width", runtime->viewport_width.load()},
-                {"height", runtime->viewport_height.load()}, {"generation", runtime->viewport_generation.load()}});
+            runtime->channel.send(runtime->viewport.snapshot().message());
             request_cursor_sync();
             runtime->channel.send({{"type", "ready"}, {"ready", runtime->ready.load()}, {"epoch", runtime->epoch.load()}});
             runtime->channel.send({{"type", "visible"}, {"value", runtime->visible.load()}}); return;
@@ -1153,7 +1163,7 @@ void on_present() {
             runtime->cursor_owned.load(std::memory_order_acquire);
         const bool drawn = runtime->renderer.draw(*frame, cursor_position, draw_cursor, client_size,
                                                    {rect.left, rect.top}, rect, runtime->resize_cursor_mode.load(),
-                                                   runtime->viewport_generation.load(std::memory_order_acquire),
+                                                   runtime->viewport.snapshot().generation,
                                                    runtime->panel_resize_edges.load(std::memory_order_acquire) != 0);
 #if REFF_ENABLE_PERF_DIAGNOSTICS
         const auto draw_cpu_us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - draw_started).count();

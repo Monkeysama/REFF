@@ -25,6 +25,7 @@
 #include <set>
 #include "keyboard.hpp"
 #include "runtime.hpp"
+#include "viewport.hpp"
 #include "embedded.hpp"
 
 using Microsoft::WRL::Callback;
@@ -406,6 +407,15 @@ private:
             const auto generation=message.value("generation",std::uint64_t{});
             if(w<320 || h<240 || w>reff::frame_max_width || h>reff::frame_max_height ||
                 !generation || generation<viewport_generation || generation<pending_generation) return;
+            // 首个 g1 可以替换宿主默认尺寸；之后同代次只允许一个尺寸，重复和迟到消息都不再触发重排。
+            if (received_viewport && generation <= received_viewport->generation) {
+                if (generation == received_viewport->generation &&
+                    (w != received_viewport->width || h != received_viewport->height))
+                    event("viewport-conflict", {{"generation", generation}, {"width", w}, {"height", h},
+                        {"acceptedWidth", received_viewport->width}, {"acceptedHeight", received_viewport->height}});
+                return;
+            }
+            received_viewport = reff::ViewportSnapshot{w,h,generation};
             pending_width=w;pending_height=h;pending_generation=generation;
             return;
         }
@@ -487,6 +497,7 @@ private:
     struct ProtocolCall {std::wstring method;std::string args;std::function<void()> done;};
     std::deque<ProtocolCall> protocol_calls;
     std::uint64_t viewport_generation=1;
+    std::optional<reff::ViewportSnapshot> received_viewport;
     std::uint64_t pending_generation{};
     int pending_width{},pending_height{};
     bool viewport_in_flight=false;

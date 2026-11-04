@@ -1,4 +1,7 @@
 #include "frame.hpp"
+#include "viewport.hpp"
+#include <atomic>
+#include <thread>
 #include "page_identity.hpp"
 #include "../native/plugin/panel_resize.hpp"
 #include "../native/plugin/host_health.hpp"
@@ -21,6 +24,32 @@ int main() {
         ++checks; if (!passed) throw std::runtime_error(name);
     };
     try {
+        // 使用实际生产快照类，验证发送失败、重开确认和并发读写都不会拼接尺寸/代次。
+        reff::ViewportState viewport;
+        auto snapshot = viewport.snapshot();
+        require(snapshot.width == 960 && snapshot.height == 640 && snapshot.generation == 1, "initial viewport tuple");
+        require(!viewport.update(1700, 1025, [](auto) { return false; }) && viewport.snapshot().generation == 1,
+            "queue failure does not commit viewport");
+        require(!viewport.update(960, 640, [](auto) { throw std::runtime_error("duplicate sent"); return true; }),
+            "unchanged viewport does not send");
+        std::atomic_bool writing{true}, coherent{true};
+        std::jthread observer([&] {
+            std::uint64_t previous = 1;
+            do {
+                const auto current = viewport.snapshot();
+                if (current.generation < previous || (current.generation > 1 &&
+                    (current.width != 600 + int((current.generation - 2) % 300) || current.height != current.width + 100)))
+                    coherent = false;
+                previous = current.generation;
+            } while (writing.load());
+        });
+        for (int i = 0; i < 5000; ++i) viewport.update(600 + i % 300, 700 + i % 300, [](auto) { return true; });
+        writing = false; observer.join();
+        require(coherent && viewport.snapshot().generation == 5001, "concurrent handshake sees whole viewport tuple");
+        snapshot = viewport.snapshot();
+        require(viewport.refresh([](auto) { return true; }) && viewport.snapshot().width == snapshot.width &&
+            viewport.snapshot().height == snapshot.height && viewport.snapshot().generation == snapshot.generation + 1,
+            "F8 refresh confirms unchanged size with new generation");
         // 默认正式构建接受全部目录目标及通用目标，未测试状态不影响启用；保留实际后端检查。
         for (const auto& entry : reff::game_catalog) {
             const auto profile = reff::game_profile_for(entry.target);

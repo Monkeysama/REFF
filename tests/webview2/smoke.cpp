@@ -83,11 +83,40 @@ int wmain(int argc,wchar_t** argv) {
             if(renderer.displayed_frame_generation()!=phase_count)throw std::runtime_error("swapchain rebuild lost shared frame generation");
             report["swapchainRebuilds"].push_back({{"width",target_size.first},{"height",target_size.second},{"generation",phase_count}});
         }
+        // 用真实宿主重放同代冲突、迟到握手及隐藏后重开；任何旧尺寸都不能覆盖已接收的代次。
+        std::uint64_t reopen_generation = phase_count;
+        report["reopenViewport"] = Json::array();
+        for (const auto expected : {std::pair{1700,1025}, std::pair{960,640}, std::pair{1458,818}}) {
+            ++reopen_generation;
+            channel.send({{"type","visible"},{"value",false}});
+            channel.send({{"type","viewport"},{"width",expected.first},{"height",expected.second},{"generation",reopen_generation}});
+            channel.send({{"type","viewport"},{"width",800},{"height",600},{"generation",reopen_generation}});
+            channel.send({{"type","viewport"},{"width",640},{"height",480},{"generation",reopen_generation-1}});
+            channel.send({{"type","visible"},{"value",true}});
+            const auto deadline = GetTickCount64() + 4000;
+            int confirmed = 0; ULONGLONG first_correct{};
+            while (GetTickCount64() < deadline) {
+                if (frame.read(pixels,sequence,width,height,generation) && generation == reopen_generation) {
+                    if (width != expected.first || height != expected.second)
+                        throw std::runtime_error("same-generation conflict replaced reopened viewport");
+                    if (!first_correct) {
+                        first_correct = GetTickCount64();
+                        // 再次覆盖已完成而非仅待办视口，验证两种状态的冲突均被拒绝。
+                        channel.send({{"type","viewport"},{"width",900},{"height",600},{"generation",reopen_generation}});
+                    }
+                    ++confirmed;
+                }
+                if (confirmed >= 4 && GetTickCount64() - first_correct >= 250) break;
+                Sleep(8);
+            }
+            if (confirmed < 4) throw std::runtime_error("reopened viewport confirmation timed out");
+            report["reopenViewport"].push_back({{"generation",reopen_generation},{"width",width},{"height",height},{"frames",confirmed}});
+        }
         // 模拟持续拖动的尺寸流，而不是逐项等待；画面必须在请求持续变化时继续交付，不能只在松手后恢复。
         std::map<std::uint64_t,std::pair<int,int>> requested;
-        requested[phase_count]=sizes[phase_count-1];
+        requested[reopen_generation]={width,height};
         auto stream_start=GetTickCount64(),last_request=stream_start,last_frame=stream_start;
-        std::uint64_t request_generation=phase_count,max_gap=0;
+        std::uint64_t request_generation=reopen_generation,max_gap=0;
         int during_drag=0,total_stream_frames=0;bool settled=false,final_sent=false;
         while(GetTickCount64()-stream_start<7000) {
             const auto now=GetTickCount64(),elapsed=now-stream_start;
@@ -108,7 +137,7 @@ int wmain(int argc,wchar_t** argv) {
                 const auto* sample=pixels.data()+(32*width+32)*4;
                 if(sample[0]!=224 || sample[1]!=160 || sample[2]!=64 || sample[3]!=255)throw std::runtime_error("continuous resize invalid web pixels");
                 ++total_stream_frames;
-                if(elapsed<4000 && generation>phase_count) {++during_drag;max_gap=std::max(max_gap,now-last_frame);last_frame=now;}
+                if(elapsed<4000 && generation>reopen_generation) {++during_drag;max_gap=std::max(max_gap,now-last_frame);last_frame=now;}
                 if(final_sent && generation==request_generation)settled=true;
                 if(!renderer.draw(frame,{30,30},false,{1280,960},{20,20},{20,20,20+width,20+height},0,generation,false))
                     throw std::runtime_error(renderer.last_error());
@@ -117,7 +146,7 @@ int wmain(int argc,wchar_t** argv) {
             if(WaitForSingleObject(process.hProcess,0)==WAIT_OBJECT_0)throw std::runtime_error("host exited during continuous resize");
             Sleep(8);
         }
-        report["continuousResize"]={{"requests",request_generation-phase_count},{"framesDuringDrag",during_drag},
+        report["continuousResize"]={{"requests",request_generation-reopen_generation},{"framesDuringDrag",during_drag},
             {"totalFrames",total_stream_frames},{"maxGapMs",max_gap},{"settled",settled},
             {"passed",during_drag>=12 && max_gap<1000 && settled}};
         std::ofstream(output/"resize-summary.json")<<report["continuousResize"].dump(2);
