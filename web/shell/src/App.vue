@@ -89,6 +89,13 @@ function pluginName(plugin: PluginSummary | null | undefined): string {
   if (!plugin) return '';
   return plugin.localizedName?.[settings.value.language] || plugin.localizedName?.['en-US'] || plugin.name || t.value('pluginFallback');
 }
+// 中文半折叠侧栏取当前显示名称的首字；其他状态保持原有 ID 缩写，不截断 Unicode 字符。
+function pluginMonogram(plugin: PluginSummary): string {
+  const abbreviation = plugin.id.split('.').slice(-1)[0]?.slice(0, 2).toUpperCase() || '';
+  return settings.value.layout.sidebarCompact && settings.value.language === 'zh-CN'
+    ? Array.from(pluginName(plugin).trim())[0] || abbreviation
+    : abbreviation;
+}
 const settingsActive = computed(() => selectedPluginId.value === settingsPluginId);
 const selectedSchemaPlugin = computed(() => activePlugin.value?.mode === 'component' && activePlugin.value.schema ? activePlugin.value : null);
 const isolatedPlugin = computed(() => activePlugin.value?.mode === 'isolated-page' ? activePlugin.value : null);
@@ -476,7 +483,7 @@ onBeforeUnmount(async () => {
         </el-tooltip>
         <el-tooltip v-for="plugin in plugins" :key="plugin.id" :content="pluginName(plugin)" placement="right" :disabled="!settings.layout.sidebarCompact">
           <el-menu-item :data-plugin-id="plugin.id" :index="`plugin:${plugin.id}`" :aria-label="pluginName(plugin)" @click="selectPlugin(plugin)">
-            <span class="plugin-monogram" aria-hidden="true">{{ plugin.id.split('.').slice(-1)[0]?.slice(0, 2).toUpperCase() }}</span><span class="nav-label">{{ pluginName(plugin) }}</span>
+            <span class="plugin-monogram" aria-hidden="true">{{ pluginMonogram(plugin) }}</span><span class="nav-label">{{ pluginName(plugin) }}</span>
           </el-menu-item>
         </el-tooltip>
       </el-menu>

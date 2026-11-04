@@ -31,6 +31,16 @@
  const sidebarArrow=compact=>{const button=document.querySelector('.nav-pin'),transform=getComputedStyle(button.querySelector('.chrome-icon')).transform;
   check(button.getAttribute('aria-expanded')===String(!compact),'sidebar arrow expanded state');
   check(compact?transform==='none':transform==='matrix(-1, 0, 0, -1, 0, 0)','sidebar arrow direction');};
+ // 通过实际语言控件切换，验证首字随语言和折叠状态即时更新，保留完整可访问名称。
+ const monograms=chinese=>{for(const id of ['example.vue','example.react','example.html']){
+  const item=menu(id),name=item.getAttribute('aria-label'),expected=chinese?Array.from(name.trim())[0]:id.split('.').pop().slice(0,2).toUpperCase();
+  check(item.querySelector('.plugin-monogram').textContent===expected,'plugin monogram '+id+' '+expected);
+ }};
+ const language=async(value,label)=>{document.querySelector('.language-select .el-select__wrapper').click();
+  await wait(()=>[...document.querySelectorAll('.el-select-dropdown__item')].some(e=>e.textContent.trim()===label),'language options');
+  [...document.querySelectorAll('.el-select-dropdown__item')].find(e=>e.textContent.trim()===label).click();
+  await saved(s=>s.language===value);await pause(50);
+ };
  const capture=async index=>{await pause(250);const points=[];
   if(shown('header')){for(const [selector,drag] of [['.window-title',true],['.header-toggle',false]]){const r=document.querySelector(selector).getBoundingClientRect();points.push({x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2),drag});}}
   else points.push({x:Math.round(innerWidth/2),y:30,drag:false});
@@ -41,7 +51,9 @@
   if(phase===0){
    await wait(()=>document.querySelector('.settings-panel'),'settings');const d=await call('reff.settings.get');check(!d.layout.sidebarCollapsed&&d.layout.headerCollapsed&&d.layout.sidebarCompact&&!d.layout.headerCompact&&d.layout.pluginPadding===24&&d.navigation.rememberLastPlugin,'defaults');
    check(document.querySelector('.padding-target').textContent.includes('所有插件（默认）'),'global target label');await leave();check(content().getBoundingClientRect().left===56&&content().getBoundingClientRect().top===0,'default compact rail reserves 56px');check(!document.querySelector('.sidebar-toggle'),'redundant top-left button');check(document.querySelector('.navigation').getBoundingClientRect().width===56,'default icon rail');await capture(0);
-   sidebarArrow(true);await click('.nav-pin');await saved(s=>!s.layout.sidebarCompact&&!s.layout.sidebarCollapsed);check(document.querySelector('.navigation').getBoundingClientRect().width===208,'expanded sidebar');brandAlignment();sidebarArrow(false);await capture(17);await click('.nav-pin');await saved(s=>s.layout.sidebarCompact);sidebarArrow(true);
+   monograms(true);check(menu('example.html').querySelector('.plugin-monogram').textContent==='原','Chinese localized initial');
+   await language('en-US','English');monograms(false);await capture(20);await language('zh-CN','简体中文');monograms(true);
+   sidebarArrow(true);await click('.nav-pin');await saved(s=>!s.layout.sidebarCompact&&!s.layout.sidebarCollapsed);check(document.querySelector('.navigation').getBoundingClientRect().width===208,'expanded sidebar');monograms(false);brandAlignment();sidebarArrow(false);await capture(17);await click('.nav-pin');await saved(s=>s.layout.sidebarCompact);sidebarArrow(true);monograms(true);
    await hover('header');check(document.querySelector('.window-bar').getBoundingClientRect().height===64,'full top bar default');await click('.header-toggle');await saved(s=>s.layout.headerCompact&&s.layout.headerCollapsed);check(document.querySelector('.window-bar').getBoundingClientRect().height===40,'compact top bar');await capture(18);await click('.header-toggle');await saved(s=>!s.layout.headerCompact);await leave();
    await hover('sidebar');await capture(1);await leave();await hover('header');await capture(2);await leave();
    menu('example.html').focus();await batch([{type:'key',action:'down',key:9},{type:'key',action:'up',key:9}]);await wait(()=>shown('header')&&document.activeElement?.classList.contains('header-toggle'),'keyboard reveal');content().focus();await leave();
