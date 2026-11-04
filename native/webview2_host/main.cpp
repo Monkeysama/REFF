@@ -206,6 +206,7 @@ public:
         root.Size({float(w),float(h)});
         if (controller) winrt::check_hresult(controller->put_Bounds({0,0,w,h}));
         pool.Recreate(capture_device,direct::DirectXPixelFormat::B8G8R8A8UIntNormalized,2,{w,h});
+        if(runtime)runtime->viewport(w,h,viewport_generation);
         if(ready) stamp_viewport();
         event("resize", {{"width",w},{"height",h}});
     }
@@ -256,7 +257,8 @@ public:
             if(ready && generation==(viewport_generation&0xffffffu)) {
                 packed.resize(size_t(width)*height*4);
                 for(int y=0;y<height;++y) memcpy(packed.data()+size_t(y)*width*4,bytes+y*map.RowPitch,width*4);
-                published=shared.write(packed.data(),width,height,viewport_generation);
+                const auto preview=runtime?runtime->preview_frame(bytes,map.RowPitch,width,height,viewport_generation):reff::PreviewFrame{};
+                published=shared.write(packed.data(),width,height,viewport_generation,preview);
             }
             context->Unmap(staging.Get(),0);
             frame.Close();frame=nullptr;texture.Reset();access=nullptr;
@@ -394,6 +396,7 @@ private:
         const auto type=message.value("type",std::string{});
         if(type=="ready")runtime_ready=message;
         if(runtime)runtime->dispatch(message);
+        if(type=="test_ack"&&selftest&&web){const auto value=reff::widen(json{{"kind","test-ack"},{"id",message.value("id",0)}}.dump());web->PostWebMessageAsJson(value.c_str());return;}
         if(type=="shutdown") {result=0;report["exitReason"]="shutdown";DestroyWindow(window);return;}
         if(type=="host-selftest" && selftest && web) {
             const auto action=message.value("action",std::string{});

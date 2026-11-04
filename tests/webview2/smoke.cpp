@@ -78,8 +78,13 @@ int wmain(int argc,wchar_t** argv) {
             renderer.reset();
             check(swapchain->ResizeBuffers(2,target_size.first,target_size.second,DXGI_FORMAT_R8G8B8A8_UNORM,0));
             if(!renderer.initialize(device.Get(),swapchain.Get(),queue.Get()))throw std::runtime_error(renderer.last_error());
-            if(!renderer.draw(frame,{30,30},false,target_size,{20,20},{20,20,20+width,20+height},0,phase_count,false))
-                throw std::runtime_error(renderer.last_error());
+            // SharedFrame 的非阻塞读取允许与宿主写入相撞后跳过一帧；重建验收等待实际恢复，而非假定首次读取必定抢到锁。
+            const auto rebuilt_deadline=GetTickCount64()+3000;
+            while(renderer.displayed_frame_generation()!=phase_count&&GetTickCount64()<rebuilt_deadline){
+                if(!renderer.draw(frame,{30,30},false,target_size,{20,20},{20,20,20+width,20+height},0,phase_count,false))
+                    throw std::runtime_error(renderer.last_error());
+                Sleep(8);
+            }
             if(renderer.displayed_frame_generation()!=phase_count)throw std::runtime_error("swapchain rebuild lost shared frame generation");
             report["swapchainRebuilds"].push_back({{"width",target_size.first},{"height",target_size.second},{"generation",phase_count}});
         }

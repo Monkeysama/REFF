@@ -224,3 +224,6 @@ export function installInputFocusReporter(client: ReffClient): InputFocusReporte
     window.removeEventListener('scroll', updateBounds, true);
   };
 }
+
+export { registerNativePreviewSlot } from './preview';
+export type { NativePreviewCapabilities, NativePreviewSlot } from './preview';

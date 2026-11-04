@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, shallowRef, watch } from 'vue';
 import { applyReffPreferences, ElMessage, REFF_ELEMENT_LOCALES } from '@reff/ui';
 import { createHostTransport, createReffClient, installInputFocusReporter } from '@reff-sdk/index';
+import { createNativePreviewProjection } from './features/nativePreview';
 import type { ReffSubscription } from '@reff-sdk/types';
 import SchemaPanel, { type SchemaDefinition, type SchemaField } from './components/SchemaPanel.vue';
 import SettingsPanel from './features/settings/SettingsPanel.vue';
@@ -31,6 +32,8 @@ const ready = shallowRef(false);
 const plugins = shallowRef<PluginSummary[]>([]);
 const selectedPluginId = shallowRef<string | null>(settingsPluginId);
 const isolatedFrame = shallowRef<HTMLIFrameElement | null>(null);
+const nativePreview = createNativePreviewProjection(reff, () => isolatedFrame.value);
+const previewActive = nativePreview.active;
 const isolatedReloadKey = shallowRef(0);
 const settings = shallowRef<ReffSettings>({
   schemaVersion: 1,
@@ -207,6 +210,7 @@ async function cleanupSubscriptions() {
 
 // 切换插件时立即使旧 iframe 引用失效；原生文档卸载负责撤销插件订阅。
 watch(selectedPluginId, (current, previous) => {
+  nativePreview.clear();
   if (current !== previous) isolatedFrame.value = null;
 }, { flush: 'sync' });
 
@@ -277,6 +281,7 @@ function resetSettings() {
 
 // Shell 仅处理当前 iframe 的偏好、导航和输入坐标；业务请求由原生 frame 绑定校验。
 async function onEmbeddedMessage(event: MessageEvent) {
+  if (nativePreview.receive(event)) return;
   const frame = isolatedFrame.value;
   const frameWindow = frame?.contentWindow;
   if (!frameWindow || event.source !== frameWindow) return;
@@ -454,6 +459,7 @@ onMounted(async () => {
 
 // 页面销毁时释放输入监听、计时器、订阅和传输句柄。
 onBeforeUnmount(async () => {
+  nativePreview.dispose();
   if (selfTestTimer !== undefined) window.clearInterval(selfTestTimer);
   if (lifecycleTimer !== undefined) window.clearInterval(lifecycleTimer);
   if (devReloadTimer !== undefined) window.clearInterval(devReloadTimer);
@@ -503,7 +509,7 @@ onBeforeUnmount(async () => {
         <button class="chrome-button header-toggle" type="button" :aria-label="t(settings.layout.headerCompact ? 'expandHeader' : 'collapseHeader')" :title="t(settings.layout.headerCompact ? 'expandHeader' : 'collapseHeader')" :aria-expanded="!settings.layout.headerCompact" @click="updateSettings({ layout: { headerCompact: !settings.layout.headerCompact } })"><span class="chrome-icon" aria-hidden="true"><ArrowDown v-if="settings.layout.headerCompact" /><ArrowUp v-else /></span></button>
       </header>
       </div>
-      <el-main id="workspace-content" tabindex="-1" class="workspace-content" :class="{ 'plugin-content': !settingsActive }" :style="{ '--plugin-padding': `${pluginPadding}px` }">
+      <el-main id="workspace-content" tabindex="-1" class="workspace-content" :class="{ 'plugin-content': !settingsActive, 'preview-content': previewActive }" :style="{ '--plugin-padding': `${pluginPadding}px` }">
         <SettingsPanel v-if="settingsActive" :settings="settings" :plugins="plugins" :version="reffVersion" :saving="savingSettings" @change="updateSettings" @reset="resetSettings" @hotkey-capture="setHotkeyCapture" />
         <div v-else-if="isolatedPlugin" class="isolated-host">
           <iframe :key="isolatedReloadKey" ref="isolatedFrame" :src="isolatedPluginUrl" :title="pluginName(isolatedPlugin)" />
@@ -591,6 +597,7 @@ nav { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .header-hint { left: calc(50% - 24px); top: 0; width: 48px; height: 20px; border-top: 0; border-radius: 0 0 4px 4px; }
 .sidebar-shown .sidebar-edge, .header-shown .header-edge { pointer-events: none; visibility: hidden; }
 .workspace-content { flex: 1; min-width: 0; min-height: 0; width: 100%; margin: 0; padding: 24px 32px; display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain; background: rgb(var(--reff-bg-rgb) / var(--reff-panel-opacity)); backdrop-filter: blur(var(--reff-surface-blur)); }
+.workspace-content.preview-content { background: transparent; backdrop-filter: none; }
 .workspace-content.plugin-content { padding: var(--plugin-padding); }
 .workspace-content > * { flex-shrink: 0; }
 .isolated-host { flex: 1; width: 100%; min-width: 0; min-height: 0; display: flex; }

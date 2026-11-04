@@ -17,3 +17,5 @@ docs/*
 
 !docs/troubleshooting.zh-CN.md
 !docs/build.zh-CN.md
+
+!docs/native-preview.zh-CN.md

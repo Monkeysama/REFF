@@ -45,7 +45,9 @@
   if(shown('header')){for(const [selector,drag] of [['.window-title',true],['.header-toggle',false]]){const r=document.querySelector(selector).getBoundingClientRect();points.push({x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2),drag});}}
   else points.push({x:Math.round(innerWidth/2),y:30,drag:false});
   points.push({x:Math.round(innerWidth*.75),y:Math.round(innerHeight*.7),drag:false});await call('test.finished',{checkpoint:'layout-capture',index,points});};
- const viewport=async(width,height,generation)=>{await batch([{type:'viewport',width,height,generation}]);await wait(()=>innerWidth===width&&innerHeight===height,'viewport');await pause(100);};
+ // 初次预热/恢复已使用 g1/g2；后续每次布局请求分配新代次，不能重用 g2 改尺寸。
+ let viewportGeneration=2;
+ const viewport=async(width,height)=>{await batch([{type:'viewport',width,height,generation:++viewportGeneration}]);await wait(()=>innerWidth===width&&innerHeight===height,'viewport');await pause(100);};
  try{
   await wait(()=>innerWidth===1458&&document.querySelector('.el-menu-item'),'initialization');
   if(phase===0){
@@ -57,11 +59,11 @@
    await hover('header');check(document.querySelector('.window-bar').getBoundingClientRect().height===64,'full top bar default');await click('.header-toggle');await saved(s=>s.layout.headerCompact&&s.layout.headerCollapsed);check(document.querySelector('.window-bar').getBoundingClientRect().height===40,'compact top bar');await capture(18);await click('.header-toggle');await saved(s=>!s.layout.headerCompact);await leave();
    await hover('sidebar');await capture(1);await leave();await hover('header');await capture(2);await leave();
    menu('example.html').focus();await batch([{type:'key',action:'down',key:9},{type:'key',action:'up',key:9}]);await wait(()=>shown('header')&&document.activeElement?.classList.contains('header-toggle'),'keyboard reveal');content().focus();await leave();
-   for(const [w,h,g,i] of [[768,640,2,3],[390,640,3,4],[320,240,4,5]]){await viewport(w,h,g);check(content().scrollWidth<=content().clientWidth+1,'overflow '+w);await capture(i);}
+   for(const [w,h,i] of [[768,640,3],[390,640,4],[320,240,5]]){await viewport(w,h);check(content().scrollWidth<=content().clientWidth+1,'overflow '+w);await capture(i);}
    const scale=document.querySelectorAll('.appearance-section .el-slider__button-wrapper')[3];scale.focus();await batch([{type:'key',action:'down',key:35},{type:'key',action:'up',key:35}]);await saved(s=>s.appearance.textScale===1.4);
-   await viewport(390,640,5);content().scrollTop=0;content().focus();await leave();check(content().scrollWidth<=content().clientWidth+1,'large type overflow');await capture(14);await hover('sidebar');await capture(15);await leave();await hover('header');await capture(16);await leave();await click('.nav-pin');await saved(s=>!s.layout.sidebarCompact);const pin=document.querySelector('.nav-pin').getBoundingClientRect();check(pin.right<=208&&pin.left>=0,'narrow large-type toggle reachable');brandAlignment();sidebarArrow(false);await capture(19);await click('.nav-pin');await saved(s=>s.layout.sidebarCompact);sidebarArrow(true);
+   await viewport(390,640);content().scrollTop=0;content().focus();await leave();check(content().scrollWidth<=content().clientWidth+1,'large type overflow');await capture(14);await hover('sidebar');await capture(15);await leave();await hover('header');await capture(16);await leave();await click('.nav-pin');await saved(s=>!s.layout.sidebarCompact);const pin=document.querySelector('.nav-pin').getBoundingClientRect();check(pin.right<=208&&pin.left>=0,'narrow large-type toggle reachable');brandAlignment();sidebarArrow(false);await capture(19);await click('.nav-pin');await saved(s=>s.layout.sidebarCompact);sidebarArrow(true);
    scale.focus();await batch([{type:'key',action:'down',key:36},{type:'key',action:'up',key:36},...Array.from({length:4},()=>[{type:'key',action:'down',key:39},{type:'key',action:'up',key:39}]).flat()]);await saved(s=>s.appearance.textScale===1);content().scrollTop=0;content().focus();
-   await viewport(1458,818,6);
+   await viewport(1458,818);
    // 设置页四个开关可任意组合；检查实际占位和尺寸，避免把折叠再误作隐藏。
    const labels={sidebarCompact:'折叠侧边栏（仅显示图标）',headerCompact:'折叠顶部栏（紧凑标题）',sidebarCollapsed:'自动隐藏侧边栏',headerCollapsed:'自动隐藏顶部栏'};
    const set=async(key,value)=>{const toggle=[...document.querySelectorAll(".layout-section .layout-row")].find(row=>row.querySelector("span")?.textContent===labels[key])?.querySelector(".el-switch");check(toggle,'setting '+key);if(toggle.classList.contains('is-checked')!==value)toggle.click();await saved(s=>s.layout[key]===value);content().focus();await leave();};

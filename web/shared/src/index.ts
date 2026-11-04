@@ -131,3 +131,6 @@ export function installReffUi(app: App): App {
   installReffPreferencesBridge();
   return app;
 }
+
+// 原生预览辅助保持框架无关，纯 HTML 插件可从受控公共模块直接使用。
+export { registerNativePreviewSlot } from '../../sdk/preview';

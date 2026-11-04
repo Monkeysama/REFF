@@ -1,6 +1,6 @@
-﻿param([string]$BuildRoot='',[switch]$Behavior,[switch]$Layout)
+﻿param([string]$BuildRoot='',[switch]$Behavior,[switch]$Layout,[switch]$Preview)
 $ErrorActionPreference='Stop'
-$behaviorMode=[bool]$Behavior -or [bool]$Layout
+$behaviorMode=[bool]$Behavior -or [bool]$Layout -or [bool]$Preview
 $repoRoot=Split-Path -Parent $PSScriptRoot
 if (-not $BuildRoot) { $BuildRoot=Join-Path $repoRoot 'build-webview2-p1' }
 $fixture=Join-Path $repoRoot ('artifacts\webview2-p1\run-'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
@@ -13,6 +13,7 @@ Copy-Item -Path (Join-Path $repoRoot 'web\shell\dist\*') -Destination $ui -Recur
 Copy-Item -LiteralPath (Join-Path $repoRoot 'version.json') -Destination $ui
 $browserScript='tests\webview2_browser.js'
 if($behaviorMode){$browserScript='tests\webview2_behavior.js'}
+if($Preview){$browserScript='tests\webview2_preview.js'}
 Copy-Item -LiteralPath (Join-Path $repoRoot $browserScript) -Destination (Join-Path $ui 'shared\p1-test.js')
 foreach($pluginId in @('example.vue','example.react','example.html')) {
     $source=Join-Path $repoRoot ('web\plugins\'+$pluginId)
@@ -35,7 +36,7 @@ if($behaviorMode){
     New-Item -ItemType Directory -Path $config -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $config 'development.json'),'{"enabled":true}')
     [IO.File]::WriteAllText((Join-Path $plugins 'example.vue\.reff-dev-version'),'initial')
-    $driverArgs+='behavior'
+    $driverArgs+=if($Preview){'preview'}else{'behavior'}
 }
 if($Layout){
     # 四次独立进程启动共用 Core 设置文件；最后仅改名测试夹具清单，模拟插件卸载。

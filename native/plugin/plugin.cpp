@@ -81,6 +81,7 @@ struct Runtime {
     std::atomic_int panel_display_width{panel_width}, panel_display_height{panel_height};
     // 握手、窗口输入和 Present 共享完整视口快照，避免旧宽高混入新代次。
     ViewportState viewport;
+    std::atomic_uint64_t preview_revision{};
     std::uint64_t last_viewport_commit_tick{};
     // 面板位置由窗口线程拖动、Present 线程裁剪；只保存客户区坐标，关闭后在本次进程内保留。
     std::atomic_int panel_origin_left{-1}, panel_origin_top{-1};
@@ -783,7 +784,9 @@ bool handle_settings_request(const Json& request) {
 void receive(Json value) {
     try {
         auto type = value.value("type", std::string{});
+        if (type == "preview_state") { runtime->preview_revision=value.value("revision",std::uint64_t{});return; }
         if (type == "hello") {
+            runtime->preview_revision=0;
             if (value.value("protocol", 0u) != protocol_version || value.value("sessionId", std::string{}) != narrow(runtime->session)) return;
             runtime->connected = true;
             { std::lock_guard lock(runtime->panel_geometry_mutex); runtime->window_regions = {}; }
@@ -1022,6 +1025,7 @@ int lua_emit(lua_State* state) {
 // bootstrap 主动认领运行状态，避免其他插件的独立 Lua 状态误消费队列。
 int lua_ready(lua_State* state) {
     runtime->owner = state; runtime->ready = lua_toboolean(state, 1) != 0;
+    if(!runtime->ready)runtime->preview_revision=0;
     if (runtime->connected) runtime->channel.send({{"type", "ready"}, {"ready", runtime->ready.load()}, {"epoch", runtime->epoch.load()}});
     return 0;
 }
@@ -1048,7 +1052,7 @@ void on_lua_created(lua_State* state) {
 void on_lua_destroyed(lua_State* state) {
     if (runtime->owner != state) return;
     std::lock_guard lock(runtime->request_mutex);
-    runtime->owner = nullptr; runtime->ready = false; ++runtime->epoch;
+    runtime->owner = nullptr; runtime->ready = false; runtime->preview_revision=0; ++runtime->epoch;
     runtime->requests.clear(); runtime->seen.clear(); set_visible(false);
     if (runtime->connected) runtime->channel.send({{"type", "ready"}, {"ready", false}, {"epoch", runtime->epoch.load()}});
 }
@@ -1085,8 +1089,9 @@ void on_present() {
         runtime->perf_present_window_started_us = present_now_us;
     }
 #endif
-    if (!runtime->visible || !runtime->connected) return;
     std::lock_guard lock(runtime->renderer_mutex);
+    runtime->renderer.collect_previews();
+    if (!runtime->visible || !runtime->connected) return;
     const auto* renderer = api->renderer_data;
     if (renderer->renderer_type != REFRAMEWORK_RENDERER_D3D12) { set_visible(false); return; }
     if (!runtime->renderer.initialize(static_cast<ID3D12Device*>(renderer->device),
@@ -1164,7 +1169,8 @@ void on_present() {
         const bool drawn = runtime->renderer.draw(*frame, cursor_position, draw_cursor, client_size,
                                                    {rect.left, rect.top}, rect, runtime->resize_cursor_mode.load(),
                                                    runtime->viewport.snapshot().generation,
-                                                   runtime->panel_resize_edges.load(std::memory_order_acquire) != 0);
+                                                   runtime->panel_resize_edges.load(std::memory_order_acquire) != 0,
+                                                   runtime->ready.load() ? &native_previews() : nullptr, runtime->preview_revision.load());
 #if REFF_ENABLE_PERF_DIAGNOSTICS
         const auto draw_cpu_us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - draw_started).count();
         ++runtime->perf_draw_attempts;

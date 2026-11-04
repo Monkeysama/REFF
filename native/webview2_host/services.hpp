@@ -34,6 +34,7 @@ public:
     void release_page();
     void fail_pending(const std::string& reason);
     Json counts() const;
+    const PageIdentity& page_identity() const { return page_; }
 private:
     struct Pending { enum class Kind {normal,subscribe,unsubscribe}; std::shared_ptr<Reply> callback;
         std::chrono::steady_clock::time_point deadline; Kind kind{Kind::normal};

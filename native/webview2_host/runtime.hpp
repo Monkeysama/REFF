@@ -1,5 +1,6 @@
 #pragma once
 #include "services.hpp"
+#include "preview_frame.hpp"
 #include <wrl.h>
 #include <WebView2.h>
 #include <WebView2EnvironmentOptions.h>
@@ -20,6 +21,8 @@ public:
     void tick();
     void suspend_input();
     void close();
+    void viewport(int width,int height,std::uint64_t generation);
+    PreviewFrame preview_frame(const unsigned char* pixels,unsigned stride,int width,int height,std::uint64_t generation) const;
 private:
     struct Document {
         HostServices services;
@@ -27,6 +30,7 @@ private:
         std::string id,url,ticket;
         std::uint64_t navigation{};
         bool main{},dead{};
+        std::set<std::string> preview_ids;
     };
     void initialize(const std::shared_ptr<Document>& document);
     void frame_created(ICoreWebView2Frame* frame);
@@ -36,6 +40,12 @@ private:
     void post(const std::shared_ptr<Document>& document,Json value);
     void resource(ICoreWebView2WebResourceRequestedEventArgs* args);
     void guard(const std::function<void()>& action) noexcept;
+    bool preview_query(const std::shared_ptr<Document>& document,const Json& request,const std::shared_ptr<HostServices::Reply>& reply);
+    void clear_previews();
+    void publish_previews();
+    PreviewFrame preview_;
+    int preview_width_{},preview_height_{};
+    std::uint64_t preview_generation_{};
     Microsoft::WRL::ComPtr<ICoreWebView2> web_;
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> environment_;
     std::vector<std::shared_ptr<Document>> documents_;

@@ -169,7 +169,7 @@ RECT Renderer::panel_client_rect(std::pair<int, int> client_size, std::pair<int,
 // Present 线程提交面板与箭头；坐标和箭头尺寸一起按客户区/交换链比例换算。
 bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, bool cursor_visible,
                     std::pair<int, int> client_size, std::pair<int, int> panel_origin, RECT display_rect, int cursor_mode,
-                    std::uint64_t expected_viewport_generation, bool panel_resizing) {
+                    std::uint64_t expected_viewport_generation, bool panel_resizing, NativePreviews* previews, std::uint64_t preview_revision) {
     last_error_.clear();
     if (!device_) { last_error_ = "DX12 renderer is not initialized"; return false; }
     try {
@@ -193,8 +193,9 @@ bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, boo
         }
         int frame_width{}, frame_height{}; std::uint64_t viewport_generation{};
         // 实时缩放允许接受最近到达的完整帧；浏览器 重排可能落后于输入，不能因追逐最新 generation 而停住画面。
-        const bool changed = frame.read(pixels_, sequence_, frame_width, frame_height, viewport_generation);
+        const bool changed = frame.read(pixels_, sequence_, frame_width, frame_height, viewport_generation, 0, &preview_frame_);
         if (!changed && !uploaded_) return true;
+        command_frame->previews.clear();
         check(command_frame->allocator->Reset()); check(list_->Reset(command_frame->allocator.Get(), pipeline_.Get()));
         if (changed) {
             frame_width_ = UINT(frame_width); frame_height_ = UINT(frame_height);
@@ -246,6 +247,30 @@ bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, boo
                   MulDiv(panel_client.right, width_, std::max(1, client_size.first)),
                   MulDiv(panel_client.bottom, height_, std::max(1, client_size.second))};
         D3D12_VIEWPORT viewport{float(rect.left), float(rect.top), float(rect.right-rect.left), float(rect.bottom-rect.top), 0, 1};
+        // 原生预览在网页下方；浏览器真实 alpha 自动保留弹窗/控件/遮罩，光标仍最后绘制。
+        // 缩放中只接受同代的槽位，坐标直接按本帧网页实际拟合矩形映射，不能套用旧尺寸。
+        if(previews && preview_frame_.revision==preview_revision && preview_frame_.count<=preview_slots &&
+            frame_viewport_generation_==expected_viewport_generation &&
+            (slots_[0].target->GetDesc().Format==DXGI_FORMAT_R8G8B8A8_UNORM || slots_[0].target->GetDesc().Format==DXGI_FORMAT_B8G8R8A8_UNORM || slots_[0].target->GetDesc().Format==DXGI_FORMAT_R10G10B10A2_UNORM)){
+            const auto project=[&](PreviewRect r){return REFFPreviewRect{rect.left+r.x*(rect.right-rect.left)/frame_width_,
+                rect.top+r.y*(rect.bottom-rect.top)/frame_height_,r.width*(rect.right-rect.left)/frame_width_,r.height*(rect.bottom-rect.top)/frame_height_};};
+            for(unsigned i=0;i<preview_frame_.count;++i){const auto& surface=preview_frame_.slots[i];
+                auto destination=project(surface.destination),clip=project(surface.clip);
+                const auto right=std::min(float(width_),clip.x+clip.width),bottom=std::min(float(height_),clip.y+clip.height);
+                clip.x=std::max(0.0f,clip.x);clip.y=std::max(0.0f,clip.y);clip.width=right-clip.x;clip.height=bottom-clip.y;
+                if(clip.width<=0 || clip.height<=0)continue;
+                if(destination.x<D3D12_VIEWPORT_BOUNDS_MIN||destination.y<D3D12_VIEWPORT_BOUNDS_MIN||
+                    destination.x+destination.width>D3D12_VIEWPORT_BOUNDS_MAX||destination.y+destination.height>D3D12_VIEWPORT_BOUNDS_MAX)continue;
+                D3D12_VIEWPORT pv{destination.x,destination.y,destination.width,destination.height,0,1};
+                RECT pc{LONG(std::ceil(clip.x)),LONG(std::ceil(clip.y)),LONG(std::floor(clip.x+clip.width)),LONG(std::floor(clip.y+clip.height))};
+                list_->RSSetViewports(1,&pv);list_->RSSetScissorRects(1,&pc);
+                REFFPreviewDrawContext context{sizeof(REFFPreviewDrawContext),1,device_.Get(),queue_.Get(),list_.Get(),slot.target.Get(),
+                    fence_.Get(),fence_value_+1,frame_viewport_generation_,uint32_t(slot.target->GetDesc().Format),width_,height_,destination,clip};
+                if(auto lease=previews->record(surface,context))command_frame->previews.push_back(std::move(lease));
+            }
+            // 回调可设置自己的 PSO/堆/根签名；恢复 REFF 状态后再绘制网页。
+            list_->SetPipelineState(pipeline_.Get());list_->OMSetRenderTargets(1,&target,FALSE,nullptr);
+        }
         list_->RSSetViewports(1, &viewport); list_->RSSetScissorRects(1, &rect);
         list_->SetGraphicsRootSignature(root_.Get()); ID3D12DescriptorHeap* heaps[]{srv_.Get()};
         list_->SetDescriptorHeaps(1, heaps); list_->SetGraphicsRootDescriptorTable(0, srv_->GetGPUDescriptorHandleForHeapStart());
@@ -270,11 +295,19 @@ bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, boo
         if (cursor_visible) { list_->DrawInstanced(6, 1, 0, 0); ++stats_.cursor_draws; }
         barrier(list_.Get(), slot.target.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
         check(list_->Close()); ID3D12CommandList* lists[]{list_.Get()}; queue_->ExecuteCommandLists(1, lists);
-        check(queue_->Signal(fence_.Get(), ++fence_value_)); command_frame->fence = fence_value_;
+        // 已提交的预览资源即使 Signal 失败也不能按旧 fence 提前释放；后续成功信号或设备移除才可回收。
+        command_frame->fence = ++fence_value_;check(queue_->Signal(fence_.Get(), fence_value_));
         ++stats_.draw_calls;
         return true;
     } catch (const std::exception& error) { last_error_ = error.what(); return false; }
       catch (...) { last_error_ = "Unknown DX12 draw exception"; return false; }
+}
+
+// 包括隐藏状态在内每次 Present 都可回收已完成的提供者引用；不等待 GPU。
+void Renderer::collect_previews(){
+    collect_retired_previews();
+    if(!fence_)return;const auto completed=fence_->GetCompletedValue();
+    for(auto& frame:command_frames_)if(frame.fence<=completed)frame.previews.clear();
 }
 
 // 仅设备重建/测试退出时等待已提交工作，正常 Present 路径禁止调用此等待。
@@ -283,6 +316,8 @@ void Renderer::reset() {
         Handle event(CreateEventW(nullptr, FALSE, FALSE, nullptr));
         if (SUCCEEDED(fence_->SetEventOnCompletion(fence_value_, event.get()))) WaitForSingleObject(event.get(), 2000);
     }
+    if(fence_)for(auto& frame:command_frames_)if(frame.fence>fence_->GetCompletedValue())
+        defer_preview_release(fence_.Get(),frame.fence,std::move(frame.previews));
     slots_.clear(); texture_.Reset(); pipeline_.Reset(); root_.Reset(); list_.Reset(); fence_.Reset(); wait_event_.reset();
     command_frames_.clear(); command_frame_index_ = 0;
     rtv_.Reset(); srv_.Reset(); swapchain_.Reset(); queue_.Reset(); device_.Reset();

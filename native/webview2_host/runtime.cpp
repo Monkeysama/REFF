@@ -134,7 +134,7 @@ void WebViewRuntime::frame_created(ICoreWebView2Frame* frame){
         [this,weak](ICoreWebView2Frame*,auto* args)->HRESULT{guard([&]{if(auto d=weak.lock())message(d,args);});return S_OK;}).Get(),&token));
     winrt::check_hresult(frame->add_Destroyed(Callback<ICoreWebView2FrameDestroyedEventHandler>(
         [this,weak](ICoreWebView2Frame*,IUnknown*)->HRESULT{guard([&]{if(auto d=weak.lock()){
-            d->ticket.clear();d->dead=true;d->services.release_page();}});return S_OK;}).Get(),&token));
+            d->ticket.clear();d->dead=true;d->preview_ids.clear();clear_previews();d->services.release_page();}});return S_OK;}).Get(),&token));
     ComPtr<ICoreWebView2Frame7> frame4;winrt::check_hresult(doc->frame.As(&frame4));
     winrt::check_hresult(frame4->add_FrameCreated(Callback<ICoreWebView2FrameChildFrameCreatedEventHandler>(
         [this](ICoreWebView2Frame*,auto*)->HRESULT{guard([&]{throw std::runtime_error("nested plugin frame denied");});return S_OK;}).Get(),&token));
@@ -146,9 +146,10 @@ void WebViewRuntime::starting(const std::shared_ptr<Document>& doc,ICoreWebView2
         (!route->shell&&route->manifest->ui_mode=="isolated-page"&&route->relative_path==route->manifest->entry));
     if(self_test&&send)send({{"type","test_diagnostic"},{"navigation",url},{"frame",doc->id},{"allowed",allowed}});
     if(!allowed){winrt::check_hresult(args->put_Cancel(TRUE));return;}
+    doc->preview_ids.clear();clear_previews();
     doc->ticket.clear();doc->url=url;winrt::check_hresult(args->get_NavigationId(&doc->navigation));
     doc->services.navigate(url,doc->id);
-    if(doc->main)for(auto& other:documents_)if(!other->main){other->ticket.clear();other->services.release_page();}
+    if(doc->main)for(auto& other:documents_)if(!other->main){other->ticket.clear();other->preview_ids.clear();other->services.release_page();}
 }
 void WebViewRuntime::completed(const std::shared_ptr<Document>& doc,ICoreWebView2NavigationCompletedEventArgs* args){
     BOOL ok{};UINT64 navigation{};winrt::check_hresult(args->get_IsSuccess(&ok));
@@ -186,6 +187,7 @@ void WebViewRuntime::message(const std::shared_ptr<Document>& doc,ICoreWebView2W
             const auto error=Json::parse(result,nullptr,false);response["code"]=error.is_object()?error.value("code","TRANSPORT_ERROR"):result;
             response["message"]=error.is_object()?error.value("message",result):result;}
         post(d,std::move(response));}};
+    if(preview_query(doc,value["request"],reply))return;
     doc->services.query(value["request"].dump(),std::move(reply));
 }
 // 官方资源直接读取 EXE；插件仍受原来的磁盘根/重解析点边界约束，外部 URL 不送往网络。
@@ -217,7 +219,12 @@ void WebViewRuntime::resource(ICoreWebView2WebResourceRequestedEventArgs* args){
     winrt::check_hresult(args->put_Response(response.Get()));
     if(self_test&&send)send({{"type","test_diagnostic"},{"url",url},{"status",status}});
 }
-void WebViewRuntime::dispatch(const Json& message){if(message.value("type",std::string{})=="ready")ready_=message;
+void WebViewRuntime::dispatch(const Json& message){
+    if(message.value("type",std::string{})=="visible"&&!message.value("value",false))clear_previews();
+    if(message.value("type",std::string{})=="ready"){
+        if(!message.value("ready",false)||message.value("epoch",0ull)!=ready_.value("epoch",0ull)){
+            for(const auto& doc:documents_)doc->preview_ids.clear();clear_previews();}
+        ready_=message;}
     for(const auto& doc:documents_)doc->services.dispatch(message);}
 // STA 逐文档清除逻辑焦点；不调用 MoveFocus 或激活隐藏 HWND，避免抢走游戏/IME 代理的系统焦点。
 void WebViewRuntime::suspend_input(){

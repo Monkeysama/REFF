@@ -1,5 +1,6 @@
 #pragma once
 #include "frame.hpp"
+#include "native_preview.hpp"
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <wrl/client.h>
@@ -23,8 +24,9 @@ public:
     // cursor_position 使用游戏客户区物理像素，调用方负责在该客户区内裁剪。
     bool draw(SharedFrame& frame, std::pair<int, int> cursor_position, bool cursor_visible,
               std::pair<int, int> client_size, std::pair<int, int> panel_origin = {-1, -1}, RECT display_rect = {}, int cursor_mode = 0,
-              std::uint64_t expected_viewport_generation = 0, bool panel_resizing = false);
+              std::uint64_t expected_viewport_generation = 0, bool panel_resizing = false, NativePreviews* previews = nullptr, std::uint64_t preview_revision = 0);
     void reset();
+    void collect_previews();
     // 仅由持有 renderer_mutex 的 Present 调用者读取并清零统计窗口。
     Stats take_stats() { auto result = stats_; stats_ = {}; return result; }
     // 只在 Present 线程调用：宿主换代后保留 GPU 资源，但不显示旧会话内容。
@@ -45,6 +47,7 @@ private:
         Com<ID3D12Resource> upload;
         Com<ID3D12Resource> cursor_upload;
         std::uint64_t fence{};
+        std::vector<NativePreviews::Lease> previews;
     };
     Com<ID3D12Device> device_;
     Com<IDXGISwapChain3> swapchain_;
@@ -66,6 +69,7 @@ private:
     UINT width_{}, height_{}, rtv_step_{};
     UINT64 fence_value_{};
     std::uint64_t sequence_{};
+    PreviewFrame preview_frame_;
     bool uploaded_{};
     UINT frame_width_{panel_width}, frame_height_{panel_height};
     std::uint64_t frame_viewport_generation_{1};

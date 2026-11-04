@@ -1,6 +1,7 @@
 #include "frame.hpp"
 #include "settings.hpp"
 #include "window_regions.hpp"
+#include "webview2/preview_gpu.hpp"
 #include <lua.hpp>
 #include <filesystem>
 #include <fstream>
@@ -87,6 +88,7 @@ void save_capture(const std::filesystem::path& path,const std::vector<std::uint8
 int wmain(int argc,wchar_t** argv){
     if(argc!=4&&argc!=5)return 2;
     const bool behavior=argc==5;
+    const bool preview=argc==5&&std::wstring(argv[4])==L"preview";
     try{
         const auto root=std::filesystem::absolute(argv[1]),fixture=std::filesystem::absolute(argv[2]),host=std::filesystem::absolute(argv[3]);
         const auto session=make_session();SharedFrame frame;frame.open(session,true);
@@ -132,10 +134,13 @@ int wmain(int argc,wchar_t** argv){
         std::uint64_t sequence{},generation{};std::vector<std::uint8_t> pixels;int width{},height{},frames{},layout_captures{};
         std::ofstream diagnostics(fixture/"diagnostics.jsonl");
         WindowRegions drag_regions;
+        std::unique_ptr<reff::test::PreviewGpu> preview_gpu;if(preview)preview_gpu=std::make_unique<reff::test::PreviewGpu>();
+        std::uint64_t preview_revision{};int preview_checks{};
         while(GetTickCount64()-begun<60000){
             while(auto message=wire.pop()){
                 const auto type=message->value("type",std::string{});
-                if(type=="hello"){channel.send({{"type","ready"},{"ready",true},{"epoch",1}});
+                if(type=="preview_state"){preview_revision=message->value("revision",0ull);}
+                else if(type=="hello"){channel.send({{"type","ready"},{"ready",true},{"epoch",1}});
                     channel.send({{"type","visible"},{"value",!behavior}});channel.send({{"type","viewport"},{"width",960},{"height",640},{"generation",1}});}
                 else if(type=="window_regions"){
                     if(const auto parsed=WindowRegions::parse((*message)["regions"]))drag_regions=*parsed;
@@ -174,7 +179,28 @@ int wmain(int argc,wchar_t** argv){
                     else {if(method=="ui.subscribe")handles.insert((*message)["params"]["subscriptionId"].get<std::string>());incoming.push(std::move(*message));}
                 }else if(type=="test_result"){
                     const auto checkpoint=(*message)["result"].value("checkpoint",std::string{});
-                    if(behavior&&checkpoint=="layout-capture"){
+                    if(preview&&checkpoint=="preview-capture"){
+                        const auto& expected=(*message)["result"];
+                        std::uint64_t seq=0,vg{};int fw{},fh{};PreviewFrame metadata;std::vector<std::uint8_t> web;
+                        if(!frame.read(web,seq,fw,fh,vg,0,&metadata)||metadata.revision!=preview_revision||metadata.count!=expected.value("count",0u))throw std::runtime_error("preview frame/revision/count not confirmed: "+std::to_string(metadata.count)+" revision="+std::to_string(metadata.revision)+"/"+std::to_string(preview_revision));
+                        if(expected.contains("provider")){if(expected["provider"].get<bool>())preview_gpu->enable();else preview_gpu->disable();}
+                        if(expected.value("rebuild",false))preview_gpu->rebuild();
+                        if(metadata.count){
+                            const auto& desired=expected["rect"];
+                            const auto& actual=metadata.slots[0].destination;
+                            const float numbers[]{actual.x,actual.y,actual.width,actual.height};
+                            for(int i=0;i<4;++i)if(std::abs(numbers[i]-desired[i].get<float>())>1.1f)throw std::runtime_error("native preview iframe projection mismatch");
+                            const auto& clip=metadata.slots[0].clip;const float clips[]{clip.x,clip.y,clip.width,clip.height};
+                            for(int i=0;i<4;++i)if(std::abs(clips[i]-expected["clip"][i].get<float>())>1.1f)throw std::runtime_error("native preview scroll clip mismatch");
+                        }
+                        auto output=preview_gpu->render(frame,fw,fh,vg,preview_revision);
+                        for(const auto& sample:expected["samples"]){const int x=sample["x"],y=sample["y"];const auto* p=&output[(y*reff::test::PreviewGpu::width+x)*4];
+                            for(int i=0;i<3;++i)if(std::abs(int(p[i])-sample["rgb"][i].get<int>())>4)throw std::runtime_error("browser/native preview composition mismatch "+std::to_string(x)+","+std::to_string(y)+" actual="+std::to_string(p[0])+","+std::to_string(p[1])+","+std::to_string(p[2]));
+                        }
+                        for(std::size_t i=0;i<output.size();i+=4)std::swap(output[i],output[i+2]);
+                        save_capture(fixture/("preview-"+std::to_string(preview_checks)+".bmp"),output,reff::test::PreviewGpu::width,reff::test::PreviewGpu::height);
+                        ++preview_checks;channel.send({{"type","test_ack"},{"id",expected.value("captureId",0)}});
+                    }else if(behavior&&checkpoint=="layout-capture"){
                         const auto index=(*message)["result"].value("index",-1);
                         if(index<0||index>20)throw std::runtime_error("invalid test capture index");
                         if (frame.read(pixels,sequence,width,height,generation)) ++frames;
@@ -228,6 +254,7 @@ int wmain(int argc,wchar_t** argv){
         // 新布局夹具检验静态截图与命中点；核心/输入回归仍保留至少五帧的连续交付要求。
         const bool output_valid = result.contains("layoutPhase") ? layout_captures > 0 && frames > 0 : frames >= 5;
         report["layoutCaptures"] = layout_captures;
+        report["previewChecks"]=preview_checks;if(preview)report["previewDraws"]=preview_gpu->draws;
         report["passed"]=!result.is_null()&&result.value("passed",false)&&output_valid&&clean&&graceful&&no_replay&&no_proxy;
         report["behaviorMode"]=behavior;
         report["embeddedShell"]=true;
