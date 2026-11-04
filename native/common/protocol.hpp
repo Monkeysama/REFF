@@ -12,7 +12,7 @@
 
 namespace reff {
 using Json = nlohmann::json;
-inline constexpr std::uint32_t protocol_version = 2;
+inline constexpr std::uint32_t protocol_version = 3;
 inline constexpr std::size_t max_message = 256 * 1024;
 inline constexpr std::size_t queue_limit = 128;
 inline constexpr int panel_width = 960;

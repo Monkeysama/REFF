@@ -249,9 +249,18 @@ bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, boo
         D3D12_VIEWPORT viewport{float(rect.left), float(rect.top), float(rect.right-rect.left), float(rect.bottom-rect.top), 0, 1};
         // 原生预览在网页下方；浏览器真实 alpha 自动保留弹窗/控件/遮罩，光标仍最后绘制。
         // 缩放中只接受同代的槽位，坐标直接按本帧网页实际拟合矩形映射，不能套用旧尺寸。
-        if(previews && preview_frame_.revision==preview_revision && preview_frame_.count<=preview_slots &&
-            frame_viewport_generation_==expected_viewport_generation &&
-            (slots_[0].target->GetDesc().Format==DXGI_FORMAT_R8G8B8A8_UNORM || slots_[0].target->GetDesc().Format==DXGI_FORMAT_B8G8R8A8_UNORM || slots_[0].target->GetDesc().Format==DXGI_FORMAT_R10G10B10A2_UNORM)){
+        // 原生底色与网页同一目标、同一命令列表合成。代次/修订不匹配时只补色，不调用旧槽位提供者。
+        const auto backdrop=[&](RECT area){area.left=std::max(0L,area.left);area.top=std::max(0L,area.top);
+            area.right=std::min(LONG(width_),area.right);area.bottom=std::min(LONG(height_),area.bottom);
+            if(area.right>area.left&&area.bottom>area.top){const float color[]{17.f/255,24.f/255,25.f/255,1};list_->ClearRenderTargetView(target,color,1,&area);}};
+        const bool preview_ready=previews&&preview_frame_.revision==preview_revision&&preview_frame_.count<=preview_slots&&
+            frame_viewport_generation_==expected_viewport_generation&&
+            (slot.target->GetDesc().Format==DXGI_FORMAT_R8G8B8A8_UNORM||slot.target->GetDesc().Format==DXGI_FORMAT_B8G8R8A8_UNORM||slot.target->GetDesc().Format==DXGI_FORMAT_R10G10B10A2_UNORM);
+        // 无效修订的旧孔位也不可信：字号/zoom 重排可能先于新的 IPC；不能沿旧 clip 补底而留下新孔的边带。
+        // 仅过渡期补当前面板；正常提供者（含透明/半透明）不垫底，普通无预览页面不改变原有透明合成。
+        if((!preview_ready&&(preview_frame_.count||(preview_frame_.flags&preview_surface_active)))||
+            (!preview_frame_.count&&(preview_frame_.flags&preview_surface_active)))backdrop(rect);
+        if(preview_ready){
             const auto project=[&](PreviewRect r){return REFFPreviewRect{rect.left+r.x*(rect.right-rect.left)/frame_width_,
                 rect.top+r.y*(rect.bottom-rect.top)/frame_height_,r.width*(rect.right-rect.left)/frame_width_,r.height*(rect.bottom-rect.top)/frame_height_};};
             for(unsigned i=0;i<preview_frame_.count;++i){const auto& surface=preview_frame_.slots[i];
@@ -267,6 +276,7 @@ bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, boo
                 REFFPreviewDrawContext context{sizeof(REFFPreviewDrawContext),1,device_.Get(),queue_.Get(),list_.Get(),slot.target.Get(),
                     fence_.Get(),fence_value_+1,frame_viewport_generation_,uint32_t(slot.target->GetDesc().Format),width_,height_,destination,clip};
                 if(auto lease=previews->record(surface,context))command_frame->previews.push_back(std::move(lease));
+                else backdrop(pc);
             }
             // 回调可设置自己的 PSO/堆/根签名；恢复 REFF 状态后再绘制网页。
             list_->SetPipelineState(pipeline_.Get());list_->OMSetRenderTargets(1,&target,FALSE,nullptr);

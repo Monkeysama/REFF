@@ -88,7 +88,8 @@ void save_capture(const std::filesystem::path& path,const std::vector<std::uint8
 int wmain(int argc,wchar_t** argv){
     if(argc!=4&&argc!=5)return 2;
     const bool behavior=argc==5;
-    const bool production=argc==5&&std::wstring(argv[4])==L"production-preview";
+    const bool scaling=argc==5&&std::wstring(argv[4])==L"production-scale";
+    const bool production=scaling||(argc==5&&std::wstring(argv[4])==L"production-preview");
     const bool preview=production||(argc==5&&std::wstring(argv[4])==L"preview");
     try{
         const auto root=std::filesystem::absolute(argv[1]),fixture=std::filesystem::absolute(argv[2]),host=std::filesystem::absolute(argv[3]);
@@ -143,6 +144,8 @@ int wmain(int argc,wchar_t** argv){
         WindowRegions drag_regions;
         std::unique_ptr<reff::test::PreviewGpu> preview_gpu;if(preview)preview_gpu=std::make_unique<reff::test::PreviewGpu>();
         std::uint64_t preview_revision{};int preview_checks{};
+        SharedFrame composition_frame;if(scaling)composition_frame.open(session+L"-composition",true);PreviewFrame production_frame;
+        UINT64 scale_started{},last_resize{};int scale_composites{},scale_leaks{},scale_samples{},scale_steps{},scale_green{},scale_background{},css_composites{},css_leaks{},css_green{},settled_green{};std::uint64_t wanted_generation=1;int wanted_width=1458,wanted_height=818;
         while(GetTickCount64()-begun<(production?30000:60000)){
             while(auto message=wire.pop()){
                 const auto type=message->value("type",std::string{});
@@ -242,10 +245,9 @@ int wmain(int argc,wchar_t** argv){
                 }
             }
             lua_rawgeti(state,LUA_REGISTRYINDEX,update_ref);if(lua_pcall(state,0,0,0))throw std::runtime_error(lua_tostring(state,-1));
-            PreviewFrame production_frame;
             if(frame.read(pixels,sequence,width,height,generation,0,&production_frame)){
                 ++frames;
-                if(production&&production_frame.count==1&&production_frame.revision==preview_revision){
+                if(production&&!scaling&&production_frame.count==1&&production_frame.revision==preview_revision){
                     auto output=preview_gpu->render(frame,width,height,generation,preview_revision);
                     const auto clip=production_frame.slots[0].clip;const int x=int(clip.x+clip.width/2),y=int(clip.y+clip.height/2);
                     const auto* p=output.data()+(y*reff::test::PreviewGpu::width+x)*4;
@@ -253,6 +255,30 @@ int wmain(int argc,wchar_t** argv){
                     for(std::size_t i=0;i<output.size();i+=4)std::swap(output[i],output[i+2]);
                     save_capture(fixture/"production-preview.bmp",output,reff::test::PreviewGpu::width,reff::test::PreviewGpu::height);
                     result={{"passed",true},{"productionHost",true},{"selfTestEnabled",false},{"cornerRadius",6},{"surfaceBlur",8},{"textScale",1.2},{"confirmedSlots",1}};
+                }
+            }
+            // 正式入口连续改变视口；插件自身同时改变 CSS 字号/zoom，逐次 Present 检查透明孔下方不是游戏。
+            if(scaling&&frames>0){
+                const auto now=GetTickCount64();if(!scale_started&&production_frame.count==1)scale_started=now;
+                if(scale_started){
+                    if(now-scale_started<3500&&now-last_resize>65){last_resize=now;++scale_steps;++wanted_generation;wanted_width=1000+(scale_steps%8)*50;wanted_height=660+(scale_steps%5)*25;
+                        channel.send({{"type","viewport"},{"width",wanted_width},{"height",wanted_height},{"generation",wanted_generation}});}
+                    composition_frame.write(pixels.data(),width,height,generation,production_frame);
+                    auto output=preview_gpu->render(composition_frame,width,height,wanted_generation,preview_revision,false,true,wanted_width,wanted_height);++scale_composites;
+                    const float scale=std::min(float(wanted_width)/width,float(wanted_height)/height),left=(wanted_width-width*scale)/2,top=(wanted_height-height*scale)/2;
+                    int leaks=0,samples=0,green=0,background=0;for(int y=120;y<height-100;y+=4)for(int x=120;x<width-100;x+=4){
+                        // 只检查透明孔内部；边缘双线性采样/矩形裁剪保留原 alpha 语义，不用补色越界抹掉合法游戏混合。
+                        bool interior=true;for(int dy=-1;dy<=1;++dy)for(int dx=-1;dx<=1;++dx)if(pixels[((y+dy)*width+x+dx)*4+3])interior=false;if(!interior)continue;const int ox=int(left+(x+.5f)*scale),oy=int(top+(y+.5f)*scale);
+                        const auto* color=output.data()+(oy*reff::test::PreviewGpu::width+ox)*4;++samples;if(color[0]<10&&color[1]>245&&color[2]<10)++green;if(color[0]==17&&color[1]==24&&color[2]==25)++background;if(color[0]>245&&color[1]<10&&color[2]>245)++leaks;}
+                    if(leaks){diagnostics<<Json{{"leaks",leaks},{"phase",now-scale_started},{"frameGen",generation},{"wantedGen",wanted_generation},{"frameRev",production_frame.revision},{"wantedRev",preview_revision},{"count",production_frame.count},{"flags",production_frame.flags},{"size",{width,height}},{"clip",{production_frame.slots[0].clip.x,production_frame.slots[0].clip.y,production_frame.slots[0].clip.width,production_frame.slots[0].clip.height}}}.dump()<<'\n';}
+                    // 保存真实 GPU 合成结果；浏览器单独截图不能证明底色/Native 与网页的层次。
+                    const auto capture=[&](const char* file){auto image=output;for(std::size_t i=0;i<image.size();i+=4)std::swap(image[i],image[i+2]);save_capture(fixture/file,image,reff::test::PreviewGpu::width,reff::test::PreviewGpu::height);};
+                    if(background>100&&!std::filesystem::exists(fixture/"scale-transition.bmp"))capture("scale-transition.bmp");
+                    if(now-scale_started>9000)capture("scale-stable.bmp");
+                    scale_samples+=samples;scale_leaks+=leaks;scale_green+=green;scale_background+=background;
+                    if(now-scale_started>=3500&&now-scale_started<7000){++css_composites;css_leaks+=leaks;css_green+=green;}if(now-scale_started>=8000)settled_green+=green;
+                    if(leaks&&!std::filesystem::exists(fixture/"scale-leak.bmp")){for(std::size_t i=0;i<output.size();i+=4)std::swap(output[i],output[i+2]);save_capture(fixture/"scale-leak.bmp",output,reff::test::PreviewGpu::width,reff::test::PreviewGpu::height);}
+                    if(now-scale_started>9000)result={{"passed",scale_leaks==0&&scale_composites>30&&scale_steps>15&&scale_samples>1000&&css_composites>15&&css_green>100&&settled_green>100&&scale_background>100},{"productionHost",true},{"selfTestEnabled",false},{"continuousScale",true},{"composites",scale_composites},{"viewportSteps",scale_steps},{"transparentSamples",scale_samples},{"gameLeaks",scale_leaks},{"nativeGreenSamples",scale_green},{"fallbackSamples",scale_background},{"cssComposites",css_composites},{"cssLeaks",css_leaks},{"cssGreen",css_green},{"settledGreen",settled_green}};
                 }
             }
             if(!result.is_null()||WaitForSingleObject(process.get(),0)==WAIT_OBJECT_0)break;Sleep(8);
@@ -279,7 +305,7 @@ int wmain(int argc,wchar_t** argv){
         report["embeddedShell"]=true;
         report["hiddenInitializationPassed"]=prewarmed;
         if(behavior&&!production)report["passed"]=report["passed"].get<bool>()&&prewarmed;
-        if(production){report["mode"]="production-preview";report["behaviorMode"]=false;for(const auto* key:{"hiddenInitializationPassed","noWriteReplay","noParentPrivilegeBypass","resetExecuted"})report.erase(key);}
+        if(production){report["mode"]=scaling?"production-scale":"production-preview";report["behaviorMode"]=false;for(const auto* key:{"hiddenInitializationPassed","noWriteReplay","noParentPrivilegeBypass","resetExecuted"})report.erase(key);}
         if(production&&result.is_null())report["browser"]={{"passed",false},{"error","production preview never reached confirmed slot"},{"productionHost",true},{"selfTestEnabled",false},{"cornerRadius",6}};
         std::ofstream(fixture/"integration-summary.json")<<report.dump(2);
         std::cout<<report.dump(2)<<'\n';return report["passed"].get<bool>()?0:1;

@@ -4,7 +4,7 @@
 #include <span>
 
 namespace reff {
-inline constexpr std::uint32_t frame_layout_version = 2;
+inline constexpr std::uint32_t frame_layout_version = 3;
 // W2 使用固定容量、动态实际宽高的 BGRA 帧；互斥量仅尝试获取，绝不阻塞渲染线程。
 struct FrameData {
     std::uint32_t magic;

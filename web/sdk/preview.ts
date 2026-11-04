@@ -1,9 +1,9 @@
 import type { ReffClient } from './types';
 
-export interface NativePreviewCapabilities { version: number; maxSlots: number; composition: 'underlay-alpha'; color: 'sdr-unorm8'; }
+export interface NativePreviewCapabilities { version: number; layoutProtocol: number; maxSlots: number; composition: 'underlay-alpha'; color: 'sdr-unorm8'; }
 export interface NativePreviewSlot { dispose(): void; }
 export type PreviewBox = [number, number, number, number];
-export interface PreviewLayout { pageId: string; viewportWidth: number; viewportHeight: number; slots: { slotId: string; rect: PreviewBox; clip: PreviewBox }[]; }
+export interface PreviewLayout { pageId: string; viewportWidth: number; viewportHeight: number; paint: [number, number, number]; slots: { slotId: string; rect: PreviewBox; clip: PreviewBox }[]; }
 
 // DOM 的实际 CSS 像素（包括 CSS zoom/平移/轴对齐缩放）；裁剪祖先的 overflow 内容框。
 // 非矩形裁剪/旋转/透视不是 v1 槽位，不猜测其外包矩形，直接停画。
@@ -40,30 +40,57 @@ export function previewElementBounds(element: HTMLElement, visibleClip?: Preview
   return right > left && bottom > top ? { rect: [r.x, r.y, r.width, r.height], clip: [left, top, right - left, bottom - top] } : null;
 }
 
-const reporters = new WeakMap<ReffClient, { pageId: string; elements: Map<string, HTMLElement>; stop: () => void }>();
+const reporters = new WeakMap<ReffClient, { pageId: string; elements: Map<string, HTMLElement>; resize: ResizeObserver; stop: () => void }>();
 /** 可选功能：在原生能力查询成功后注册当前隔离页槽位。祖先/槽位背景须透明，网页前景保持正常。 */
 export async function registerNativePreviewSlot(client: ReffClient, element: HTMLElement, slotId: string): Promise<NativePreviewSlot> {
   const capabilities = await client.call<NativePreviewCapabilities>('ui.preview.capabilities');
   if (capabilities.version !== 1) throw new Error('Unsupported native preview ABI');
+  if (capabilities.layoutProtocol !== 2) throw new Error('Native preview layout protocol 2 is required');
   const { pageId } = await client.call<{ pageId: string }>('ui.preview.register', { slotId });
   let reporter = reporters.get(client);
   if (!reporter) {
-    const elements = new Map<string, HTMLElement>(); let frame = 0, stopped = false, previous = '', sent = 0;
-    const post = (slots: PreviewLayout['slots']) => parent.postMessage({ type: 'reff:preview-layout', pageId, viewportWidth: innerWidth, viewportHeight: innerHeight, slots }, '*');
-    const tick = (now: number) => {
+    const elements = new Map<string, HTMLElement>(); let frame = 0, stopped = false, previous = '', sent = 0, revision = 0;
+    // 子文档的布局标记与透明孔一同 paint；父页消息和 DOM 重排不是同一事务。
+    // Mutation/ResizeObserver 在绘制前更新标记，覆盖晚于 rAF 的字号/zoom 修改；标记本身不触发布局反馈。
+    const stamp = document.createElement('i');
+    stamp.style.cssText = 'position:fixed!important;width:3px!important;height:3px!important;left:0!important;top:0!important;z-index:2147483647!important;pointer-events:none!important;opacity:1!important;display:block!important;visibility:visible!important;margin:0!important;padding:0!important;border:0!important;transform:none!important';
+    document.documentElement.append(stamp);
+    const report = (now: number) => {
       if (stopped) return;
       const slots: PreviewLayout['slots'] = [];
       for (const [id, target] of elements) { const bounds = previewElementBounds(target); if (bounds) slots.push({ slotId: id, ...bounds }); }
       const signature = JSON.stringify([innerWidth, innerHeight, slots]);
-      if (signature !== previous || now - sent > 200) { post(slots); previous = signature; sent = now; }
-      frame = requestAnimationFrame(tick);
+      if (signature !== previous || now - sent > 200) {
+        if (signature !== previous) {
+          revision = revision % 0xffffff + 1;
+          stamp.style.setProperty('background', `rgb(${revision & 255},${revision >> 8 & 255},${revision >> 16 & 255})`, 'important');
+          const size = stamp.getBoundingClientRect();
+          stamp.style.setProperty('left', `${Math.min(98, Math.max(0, innerWidth - 4)) / (size.width / 3 || 1)}px`, 'important');
+          stamp.style.setProperty('top', `${Math.max(0, innerHeight - 24) / (size.height / 3 || 1)}px`, 'important');
+        }
+        const r = stamp.getBoundingClientRect();
+        parent.postMessage({ type: 'reff:preview-layout', pageId, viewportWidth: innerWidth, viewportHeight: innerHeight,
+          paint: [r.x + r.width / 2, r.y + r.height / 2, revision], slots }, '*');
+        previous = signature; sent = now;
+      }
     };
-    reporter = { pageId, elements, stop: () => { stopped = true; cancelAnimationFrame(frame); post([]); reporters.delete(client); } };
+    const changed = () => report(performance.now());
+    const mutation = new MutationObserver(records => { if (records.some(record => record.target !== stamp)) changed(); });
+    mutation.observe(document.documentElement, { attributes: true, childList: true, characterData: true, subtree: true });
+    const resize = new ResizeObserver(changed); resize.observe(document.documentElement);
+    const tick = (now: number) => { report(now); if (!stopped) frame = requestAnimationFrame(tick); };
+    addEventListener('resize', changed); addEventListener('scroll', changed, true);
+    reporter = { pageId, elements, resize, stop: () => {
+      stopped = true; cancelAnimationFrame(frame); mutation.disconnect(); resize.disconnect();
+      removeEventListener('resize', changed); removeEventListener('scroll', changed, true);
+      parent.postMessage({ type: 'reff:preview-layout', pageId, viewportWidth: innerWidth, viewportHeight: innerHeight, paint: [0, 0, 0], slots: [] }, '*');
+      stamp.remove(); reporters.delete(client);
+    } };
     reporters.set(client, reporter); frame = requestAnimationFrame(tick);
     addEventListener('pagehide', reporter.stop, { once: true });
   }
   if (reporter.elements.has(slotId)) throw new Error('Preview slot already attached');
-  reporter.elements.set(slotId, element);
+  reporter.elements.set(slotId, element); reporter.resize.observe(element);
   let disposed = false;
-  return { dispose() { if (disposed) return; disposed = true; reporter.elements.delete(slotId); void client.call('ui.preview.remove', { slotId }).catch(() => {}); if (!reporter.elements.size) reporter.stop(); } };
+  return { dispose() { if (disposed) return; disposed = true; reporter.elements.delete(slotId); if (![...reporter.elements.values()].includes(element)) reporter.resize.unobserve(element); void client.call('ui.preview.remove', { slotId }).catch(() => {}); if (!reporter.elements.size) reporter.stop(); } };
 }

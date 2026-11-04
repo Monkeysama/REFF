@@ -51,7 +51,7 @@
    const project=b=>[r.left+b[0]*r.width/data.viewportWidth,r.top+b[1]*r.height/data.viewportHeight,b[2]*r.width/data.viewportWidth,b[3]*r.height/data.viewportHeight];
    const rect=data?project(data.rect):[],clip=data?project(data.clip):[];
    const point=(x,y,rgb)=>({x:Math.floor(r.left+x*r.width/data.viewportWidth),y:Math.floor(r.top+y*r.height/data.viewportHeight),rgb});
-   const samples=data&&options.count!==0?[point(230,180,options.provider===false?[0,0,0]:[0,255,0])]:[];
+   const samples=data&&options.count!==0?[point(230,180,options.provider===false?[17,24,25]:[0,255,0])]:[];
    if(data&&options.overlay){samples.push(point(80,120,[255,0,0]),point(140,120,[0,127,128]));}
    const captureId=++sequence;await new Promise((resolve,reject)=>{
     const listener=e=>{if(e.data?.kind==='test-ack'&&e.data.id===captureId){clearTimeout(timer);chrome.webview.removeEventListener('message',listener);resolve();}};
@@ -61,7 +61,7 @@
   };
   let data=await child('init');await capture(data,{overlay:true});
   const duplicate={slotId:'portrait',rect:[100,180,100,100],clip:[100,180,100,100]};
-  await call('ui.preview.present',{pageId:data.pageId,viewportWidth:innerWidth,viewportHeight:innerHeight,slots:[duplicate,duplicate]}).then(()=>{throw Error('overlapping slots accepted');},e=>check(e.code==='OVERLAPPING_SLOTS','overlap rejected'));
+  await call('ui.preview.present',{pageId:data.pageId,viewportWidth:innerWidth,viewportHeight:innerHeight,paint:[0,0,1],layoutToken:1,slots:[duplicate,duplicate]}).then(()=>{throw Error('overlapping slots accepted');},e=>check(e.code==='OVERLAPPING_SLOTS','overlap rejected'));
   for(const unsupported of ['opacity','rotate','round']){await child(unsupported);await capture(null);data=await child('restore');await capture(data);}
   // 全局圆角可保留；只有实际进入 Shell 曲线角区的槽位才停画，不能把 iframe 整体当作槽位。
   await child('corner');await capture(null);

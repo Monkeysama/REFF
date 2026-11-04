@@ -112,6 +112,7 @@ jobs:
           .\tools\test-webview2-p1.ps1 -BuildRoot .\build-webview2-release -Layout
           .\tools\test-webview2-p1.ps1 -BuildRoot .\build-webview2-release -Preview
           .\tools\test-webview2-p1.ps1 -BuildRoot .\build-webview2-release -ProductionPreview
+          .\tools\test-webview2-p1.ps1 -BuildRoot .\build-webview2-release -ProductionScale
 
       - name: 生成并校验分发资产
         shell: pwsh

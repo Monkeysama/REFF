@@ -22,7 +22,7 @@ public:
     void suspend_input();
     void close();
     void viewport(int width,int height,std::uint64_t generation);
-    PreviewFrame preview_frame(const unsigned char* pixels,unsigned stride,int width,int height,std::uint64_t generation) const;
+    PreviewFrame preview_frame(const unsigned char* pixels,unsigned stride,int width,int height,std::uint64_t generation);
 private:
     struct Document {
         HostServices services;
@@ -44,6 +44,9 @@ private:
     void clear_previews();
     void publish_previews();
     PreviewFrame preview_;
+    float preview_paint_x_{}, preview_paint_y_{};
+    std::uint32_t preview_paint_token_{}, preview_layout_token_{};
+    bool captured_preview_surface_{};
     int preview_width_{},preview_height_{};
     std::uint64_t preview_generation_{};
     Microsoft::WRL::ComPtr<ICoreWebView2> web_;
