@@ -209,9 +209,9 @@ async function cleanupSubscriptions() {
 }
 
 // 切换插件时立即使旧 iframe 引用失效；原生文档卸载负责撤销插件订阅。
-watch(selectedPluginId, (current, previous) => {
+watch([selectedPluginId, isolatedReloadKey], ([current, reload], [previous, previousReload]) => {
   nativePreview.clear();
-  if (current !== previous) isolatedFrame.value = null;
+  if (current !== previous || reload !== previousReload) isolatedFrame.value = null;
 }, { flush: 'sync' });
 
 // 左侧导航只消费宿主返回的 manifest 摘要；Shell 不包含任何具体插件 ID 或业务页面。
@@ -512,7 +512,7 @@ onBeforeUnmount(async () => {
       <el-main id="workspace-content" tabindex="-1" class="workspace-content" :class="{ 'plugin-content': !settingsActive, 'preview-content': previewActive }" :style="{ '--plugin-padding': `${pluginPadding}px` }">
         <SettingsPanel v-if="settingsActive" :settings="settings" :plugins="plugins" :version="reffVersion" :saving="savingSettings" @change="updateSettings" @reset="resetSettings" @hotkey-capture="setHotkeyCapture" />
         <div v-else-if="isolatedPlugin" class="isolated-host">
-          <iframe :key="isolatedReloadKey" ref="isolatedFrame" :src="isolatedPluginUrl" :title="pluginName(isolatedPlugin)" />
+          <iframe :key="`${isolatedPlugin.id}:${isolatedReloadKey}`" ref="isolatedFrame" :src="isolatedPluginUrl" :title="pluginName(isolatedPlugin)" />
         </div>
         <SchemaPanel
           v-else-if="selectedSchemaPlugin"
@@ -597,7 +597,8 @@ nav { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .header-hint { left: calc(50% - 24px); top: 0; width: 48px; height: 20px; border-top: 0; border-radius: 0 0 4px 4px; }
 .sidebar-shown .sidebar-edge, .header-shown .header-edge { pointer-events: none; visibility: hidden; }
 .workspace-content { flex: 1; min-width: 0; min-height: 0; width: 100%; margin: 0; padding: 24px 32px; display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain; background: rgb(var(--reff-bg-rgb) / var(--reff-panel-opacity)); backdrop-filter: blur(var(--reff-surface-blur)); }
-.workspace-content.preview-content { background: transparent; backdrop-filter: none; }
+/* 只让预览正文透出 Native；留白仍属于公共外壳，按当前配置保持背景与透明度。 */
+.workspace-content.preview-content { background: transparent; backdrop-filter: none; box-shadow: inset 0 0 0 var(--plugin-padding) rgb(var(--reff-bg-rgb) / var(--reff-panel-opacity)); }
 .workspace-content.plugin-content { padding: var(--plugin-padding); }
 .workspace-content > * { flex-shrink: 0; }
 .isolated-host { flex: 1; width: 100%; min-width: 0; min-height: 0; display: flex; }

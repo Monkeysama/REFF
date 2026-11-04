@@ -18,6 +18,7 @@
      await call('ui.preview.present',{pageId:'forged',slots:[]}).then(()=>{throw Error('iframe projected itself');},e=>check(e.code==='FORBIDDEN','iframe projection blocked'));
      await call('ui.preview.register',{slotId:'../bad'}).then(()=>{throw Error('unsafe slot registered');},e=>check(e.code==='INVALID_ARGUMENT','unsafe slot rejected'));
     }
+    if(args.action==='padding')await call('ui.layout.set',{padding:args.padding});
     if(args.action==='scroll')document.getElementById('scroll').scrollTop=40;
     if(args.action==='corner'){document.getElementById('scroll').style.cssText='position:fixed;right:0;bottom:0;width:240px;height:180px;overflow:hidden';document.getElementById('slot').style.top='0';}
     if(args.action==='uncorner'){document.getElementById('scroll').style.cssText='position:absolute;left:20px;top:60px;width:240px;height:180px;overflow:hidden';document.getElementById('slot').style.top='30px';}
@@ -39,19 +40,19 @@
  }
  try{
   await wait(()=>document.querySelector('[data-plugin-id="example.vue"]'),'menu');
-  let childReady=null;addEventListener('message',e=>{if(e.source===document.querySelector('iframe')?.contentWindow&&e.data?.type==='preview-test-ready')childReady=e.data;});
+  let childReady=null,latestLayout=null;addEventListener('message',e=>{if(e.source===document.querySelector('iframe')?.contentWindow&&e.data?.type==='preview-test-ready')childReady=e.data;if(e.source===document.querySelector('iframe')?.contentWindow&&e.data?.type==='reff:preview-layout')latestLayout=e.data;});
   const select=async id=>{childReady=null;document.querySelector(`[data-plugin-id="${id}"]`).click();if(id!=='reff.settings')await wait(()=>childReady,'child navigation');await pause(120);};
   await select('example.vue');await wait(()=>document.querySelector('iframe'),'iframe');
   let sequence=0;
-  const child=async action=>{const frame=document.querySelector('iframe'),id=++sequence;return new Promise((resolve,reject)=>{
+  const child=async(action,params={})=>{const frame=document.querySelector('iframe'),id=++sequence;return new Promise((resolve,reject)=>{
    const listener=e=>{if(e.source!==frame.contentWindow||e.data?.type!=='preview-test-reply'||e.data.id!==id)return;clearTimeout(timeout);removeEventListener('message',listener);e.data.error?reject(Error(e.data.error)):resolve(e.data);};
-   const timeout=setTimeout(()=>{removeEventListener('message',listener);reject(Error('preview child timeout '+action));},4500);addEventListener('message',listener);frame.contentWindow.postMessage({type:'preview-test',action,id},'*');});};
+   const timeout=setTimeout(()=>{removeEventListener('message',listener);reject(Error('preview child timeout '+action));},4500);addEventListener('message',listener);frame.contentWindow.postMessage({type:'preview-test',action,id,...params},'*');});};
   const capture=async(data,options={})=>{
    await pause(500);const frame=document.querySelector('iframe'),r=frame?.getBoundingClientRect();
    const project=b=>[r.left+b[0]*r.width/data.viewportWidth,r.top+b[1]*r.height/data.viewportHeight,b[2]*r.width/data.viewportWidth,b[3]*r.height/data.viewportHeight];
    const rect=data?project(data.rect):[],clip=data?project(data.clip):[];
    const point=(x,y,rgb)=>({x:Math.floor(r.left+x*r.width/data.viewportWidth),y:Math.floor(r.top+y*r.height/data.viewportHeight),rgb});
-   const samples=data&&options.count!==0?[point(230,180,options.provider===false?[17,24,25]:[0,255,0])]:[];
+   const samples=[...(options.paddingSamples||[]),...(data&&options.count!==0?[point(230,180,options.provider===false?[17,24,25]:[0,255,0])]:[])];
    if(data&&options.overlay){samples.push(point(80,120,[255,0,0]),point(140,120,[0,127,128]));}
    const captureId=++sequence;await new Promise((resolve,reject)=>{
     const listener=e=>{if(e.data?.kind==='test-ack'&&e.data.id===captureId){clearTimeout(timer);chrome.webview.removeEventListener('message',listener);resolve();}};
@@ -60,6 +61,23 @@
    });
   };
   let data=await child('init');await capture(data,{overlay:true});
+  // A 自设 0 留白 -> B 继承 24；排队中的旧文档消息不得让 B 再次进入透明预览状态。
+  const content=()=>document.querySelector('#workspace-content');
+  const padding=async n=>wait(()=>parseFloat(getComputedStyle(content()).paddingLeft)===n,'padding '+n);
+  const paddingPixel=()=>{const r=content().getBoundingClientRect(),p=parseFloat(getComputedStyle(content()).paddingLeft),style=getComputedStyle(document.documentElement);
+   const opacity=Number(style.getPropertyValue('--reff-panel-opacity')),rgb=style.getPropertyValue('--reff-bg-rgb').trim().split(/\s+/).map(Number);
+   return {x:Math.floor(r.left+p/2),y:Math.floor(r.top+p/2),rgb:rgb.map(v=>Math.round(v*opacity))};};
+  await call('reff.settings.set',{layout:{pluginPadding:24}});await child('padding',{padding:0});await padding(0);
+  const oldWindow=document.querySelector('iframe').contentWindow,oldLayout=latestLayout;check(oldLayout?.slots.length,'real A preview layout');
+  await select('example.react');await padding(24);
+  // 等价于旧文档已发出、导航后才送达的 postMessage；其 source 必须属于旧浏览上下文。
+  dispatchEvent(new MessageEvent('message',{source:oldWindow,data:oldLayout}));await pause(300);
+  check(!content().classList.contains('preview-content'),'old A preview made B padding transparent');
+  await capture(null,{paddingSamples:[paddingPixel()]});
+  await select('example.vue');data=await child('init');await child('padding',{padding:48});await padding(48);
+  data=await child('inspect');await capture(data,{paddingSamples:[paddingPixel()]});
+  await call('reff.settings.set',{layout:{pluginPadding:0}});await child('padding',{padding:0});await padding(0);data=await child('inspect');await capture(data,{overlay:true});
+
   const duplicate={slotId:'portrait',rect:[100,180,100,100],clip:[100,180,100,100]};
   await call('ui.preview.present',{pageId:data.pageId,viewportWidth:innerWidth,viewportHeight:innerHeight,paint:[0,0,1],layoutToken:1,slots:[duplicate,duplicate]}).then(()=>{throw Error('overlapping slots accepted');},e=>check(e.code==='OVERLAPPING_SLOTS','overlap rejected'));
   for(const unsupported of ['opacity','rotate','round']){await child(unsupported);await capture(null);data=await child('restore');await capture(data);}
@@ -83,6 +101,6 @@
   await call('example.vue.refresh').then(()=>{throw Error('reset write replayed');},e=>check(e.code==='SCRIPT_RESET','reset invalidates in-flight write'));
   await wait(()=>childReady&&childReady.pageId!==data.pageId,'reset new page');data=await child('init');await capture(data);
   await child('remove');await capture(null);
-  await call('test.finished',{passed:true,preview:true,metadata:true,clipping:true,occlusion:true,zoom:true,unregister:true,reset:true,reopen:true});
+  await call('test.finished',{passed:true,paddingSwitch:true,preview:true,metadata:true,clipping:true,occlusion:true,zoom:true,unregister:true,reset:true,reopen:true});
  }catch(error){await call('test.finished',{passed:false,error:String(error),stack:error?.stack});}
 })()

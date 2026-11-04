@@ -5,7 +5,7 @@ import { previewElementBounds, type PreviewLayout, type PreviewBox } from '@reff
 // Shell 只投影当前 iframe；业务身份/槽位权限由原生文档绑定，不经 parent 代理注册。
 export function createNativePreviewProjection(client: ReffClient, currentFrame: () => HTMLIFrameElement | null) {
   const active = shallowRef(false);
-  let token = 0, observed = '';
+  let token = 0, observed = '', generation = 0;
   const stamp = document.createElement('i');
   stamp.style.cssText = 'position:fixed!important;left:104px!important;top:22px!important;width:3px!important;height:3px!important;z-index:2147483647!important;pointer-events:none!important;opacity:1!important';
   document.documentElement.append(stamp);
@@ -29,8 +29,14 @@ export function createNativePreviewProjection(client: ReffClient, currentFrame: 
       const params = { ...layout, layoutToken: token };
       const signature = JSON.stringify(params);
       if (!busy && (signature !== previous || now - sent > 200)) {
+        const owner = generation;
         busy = true; previous = signature; sent = now;
-        void client.call('ui.preview.present', params).catch(() => { previous = ''; }).finally(() => { busy = false; });
+        // 清理后的旧请求不能修改新插件的投影队列，也不能阻塞新文档。
+        void client.call('ui.preview.present', params).catch(error => {
+          if (owner !== generation) return;
+          previous = '';
+          if (error?.code === 'PAGE_UNLOADED' && source?.pageId === params.pageId) { source = null; active.value = false; }
+        }).finally(() => { if (owner === generation) busy = false; });
       }
     }
     frameId = requestAnimationFrame(tick);
@@ -45,7 +51,7 @@ export function createNativePreviewProjection(client: ReffClient, currentFrame: 
       if (!Array.isArray(data.paint) || data.paint.length !== 3 || !data.paint.every(Number.isFinite) || !Number.isInteger(data.paint[2]) || data.paint[2] < 0 || data.paint[2] > 0xffffff) return true;
       source = data; active.value = data.slots.length > 0; return true;
     },
-    clear() { source = null; previous = ''; active.value = false; },
-    dispose() { stamp.remove(); stopped = true; cancelAnimationFrame(frameId); source = null; active.value = false; },
+    clear() { ++generation; source = null; busy = false; previous = ''; active.value = false; },
+    dispose() { ++generation; stamp.remove(); stopped = true; cancelAnimationFrame(frameId); source = null; active.value = false; },
   };
 }
