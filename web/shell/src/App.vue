@@ -468,7 +468,7 @@ onBeforeUnmount(async () => {
     <div class="sidebar-chrome" @mouseenter="sidebarHovered = true" @mouseleave="sidebarHovered = false" @focusin="chromeFocus($event, 'sidebar')" @focusout="chromeFocus($event, 'sidebar')">
     <div v-if="settings.layout.sidebarCollapsed" class="sidebar-edge" @mouseenter="sidebarHovered = true"><button class="edge-hint sidebar-hint" type="button" :aria-label="t('revealSidebar')" :aria-expanded="sidebarShown" @focus="focusChrome($event, 'sidebar')" @click="sidebarHovered = true"><span class="chrome-icon"><ArrowRight /></span></button></div>
     <el-aside class="navigation" :inert="!sidebarShown">
-      <div class="brand"><strong class="brand-name">RE<span>FF</span></strong><small>v{{ reffVersion }}</small><button class="chrome-button nav-pin" type="button" :aria-label="t(settings.layout.sidebarCompact ? 'expandSidebar' : 'collapseSidebar')" :title="t(settings.layout.sidebarCompact ? 'expandSidebar' : 'collapseSidebar')" :aria-expanded="!settings.layout.sidebarCompact" @click="updateSettings({ layout: { sidebarCompact: !settings.layout.sidebarCompact } })"><span class="chrome-icon"><ArrowRight /></span></button></div>
+      <div class="brand"><div class="brand-identity"><strong class="brand-name">RE<span>FF</span></strong><small>v{{ reffVersion }}</small></div><button class="chrome-button nav-pin" type="button" :aria-label="t(settings.layout.sidebarCompact ? 'expandSidebar' : 'collapseSidebar')" :title="t(settings.layout.sidebarCompact ? 'expandSidebar' : 'collapseSidebar')" :aria-expanded="!settings.layout.sidebarCompact" @click="updateSettings({ layout: { sidebarCompact: !settings.layout.sidebarCompact } })"><span class="chrome-icon"><ArrowRight /></span></button></div>
       <nav :aria-label="t('plugins')">
       <el-menu :default-active="activeMenu">
         <el-tooltip :content="t('settings')" placement="right" :disabled="!settings.layout.sidebarCompact">
@@ -532,9 +532,11 @@ onBeforeUnmount(async () => {
 .header-chrome { position: relative; flex: 0 0 var(--header-height); height: var(--header-height); min-width: 0; }
 .navigation { width: var(--sidebar-width); height: 100%; display: flex; flex-direction: column; min-height: 0; background: rgb(var(--reff-surface-rgb) / var(--reff-panel-opacity)); backdrop-filter: blur(var(--reff-surface-blur)); border-right: 1px solid var(--reff-border); }
 .brand { height: 64px; flex: 0 0 64px; display: flex; align-items: center; gap: 8px; padding: 0 12px; }
-.brand-name { font-size: calc(21px * var(--reff-text-scale)); font-weight: 750; letter-spacing: 0; }
+/* 品牌与版本共用文字基线，独立按钮仍按整行居中，避免小字号版本悬在标识中部。 */
+.brand-identity { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.brand-name { flex-shrink: 0; font-size: calc(21px * var(--reff-text-scale)); font-weight: 750; line-height: 1; letter-spacing: 0; }
 .brand span { color: var(--reff-accent); }
-.brand small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--reff-muted); font-size: var(--reff-font-size-xs); }
+.brand small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--reff-muted); font-size: var(--reff-font-size-xs); line-height: 1; }
 nav { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .reff-shell :deep(.el-menu) { border: 0; padding: 8px; background: transparent; }
 .reff-shell :deep(.el-menu-item) { display: flex; gap: 8px; height: 40px; line-height: normal; margin: 4px 0; padding: 0 12px !important; border-radius: 4px; color: var(--reff-muted); font-size: var(--reff-font-size-sm); }
@@ -566,9 +568,10 @@ nav { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .header-collapsed .window-bar { visibility: hidden; pointer-events: none; }
 .header-collapsed.header-shown .window-bar { visibility: visible; pointer-events: auto; }
 .nav-pin { margin-left: auto; }
+.nav-pin[aria-expanded="true"] .chrome-icon { transform: rotate(180deg); }
 /* 半折叠只减少栏尺寸，显隐仍由独立的自动隐藏设置控制。 */
 .sidebar-compact .brand { justify-content: center; padding: 0; }
-.sidebar-compact .brand-name, .sidebar-compact .brand small, .sidebar-compact .nav-label { display: none; }
+.sidebar-compact .brand-identity, .sidebar-compact .nav-label { display: none; }
 .sidebar-compact .nav-pin { margin: 0; }
 .sidebar-compact :deep(.el-menu-item) { justify-content: center; padding: 0 !important; }
 .sidebar-compact .status { justify-content: center; padding: 16px 0; }

@@ -21,6 +21,16 @@
   const done=e=>{if(e.source!==frame.contentWindow||e.data?.type!=='layout-result'||e.data.id!==id)return;clearTimeout(timer);removeEventListener('message',done);e.data.error?reject(Error(e.data.error)):resolve(e.data.value);};
   const timer=setTimeout(()=>{removeEventListener('message',done);reject(Error('plugin probe timeout'));},5000);addEventListener('message',done);frame.contentWindow.postMessage({type:'layout-probe',id,method,params},'*');});};
  const padding=async value=>wait(()=>parseFloat(getComputedStyle(content()).paddingLeft)===value,'effective padding '+value);
+ // 临时零尺寸行内标记读出真实文字基线，不以字号不同的外框中心代替对齐证据。
+ const brandAlignment=()=>{
+  const baseline=selector=>{const marker=document.createElement('i');marker.style.cssText='display:inline-block;width:0;height:0;padding:0;border:0;vertical-align:baseline';document.querySelector(selector).append(marker);const y=marker.getBoundingClientRect().top;marker.remove();return y;};
+  check(Math.abs(baseline('.brand-name')-baseline('.brand small'))<1,'brand/version baseline');
+  const row=document.querySelector('.brand').getBoundingClientRect(),button=document.querySelector('.nav-pin').getBoundingClientRect();
+  check(Math.abs(row.top+row.height/2-button.top-button.height/2)<1,'sidebar arrow row center');
+ };
+ const sidebarArrow=compact=>{const button=document.querySelector('.nav-pin'),transform=getComputedStyle(button.querySelector('.chrome-icon')).transform;
+  check(button.getAttribute('aria-expanded')===String(!compact),'sidebar arrow expanded state');
+  check(compact?transform==='none':transform==='matrix(-1, 0, 0, -1, 0, 0)','sidebar arrow direction');};
  const capture=async index=>{await pause(250);const points=[];
   if(shown('header')){for(const [selector,drag] of [['.window-title',true],['.header-toggle',false]]){const r=document.querySelector(selector).getBoundingClientRect();points.push({x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2),drag});}}
   else points.push({x:Math.round(innerWidth/2),y:30,drag:false});
@@ -31,13 +41,13 @@
   if(phase===0){
    await wait(()=>document.querySelector('.settings-panel'),'settings');const d=await call('reff.settings.get');check(!d.layout.sidebarCollapsed&&d.layout.headerCollapsed&&d.layout.sidebarCompact&&!d.layout.headerCompact&&d.layout.pluginPadding===24&&d.navigation.rememberLastPlugin,'defaults');
    check(document.querySelector('.padding-target').textContent.includes('所有插件（默认）'),'global target label');await leave();check(content().getBoundingClientRect().left===56&&content().getBoundingClientRect().top===0,'default compact rail reserves 56px');check(!document.querySelector('.sidebar-toggle'),'redundant top-left button');check(document.querySelector('.navigation').getBoundingClientRect().width===56,'default icon rail');await capture(0);
-   await click('.nav-pin');await saved(s=>!s.layout.sidebarCompact&&!s.layout.sidebarCollapsed);check(document.querySelector('.navigation').getBoundingClientRect().width===208,'expanded sidebar');await capture(17);await click('.nav-pin');await saved(s=>s.layout.sidebarCompact);
+   sidebarArrow(true);await click('.nav-pin');await saved(s=>!s.layout.sidebarCompact&&!s.layout.sidebarCollapsed);check(document.querySelector('.navigation').getBoundingClientRect().width===208,'expanded sidebar');brandAlignment();sidebarArrow(false);await capture(17);await click('.nav-pin');await saved(s=>s.layout.sidebarCompact);sidebarArrow(true);
    await hover('header');check(document.querySelector('.window-bar').getBoundingClientRect().height===64,'full top bar default');await click('.header-toggle');await saved(s=>s.layout.headerCompact&&s.layout.headerCollapsed);check(document.querySelector('.window-bar').getBoundingClientRect().height===40,'compact top bar');await capture(18);await click('.header-toggle');await saved(s=>!s.layout.headerCompact);await leave();
    await hover('sidebar');await capture(1);await leave();await hover('header');await capture(2);await leave();
    menu('example.html').focus();await batch([{type:'key',action:'down',key:9},{type:'key',action:'up',key:9}]);await wait(()=>shown('header')&&document.activeElement?.classList.contains('header-toggle'),'keyboard reveal');content().focus();await leave();
    for(const [w,h,g,i] of [[768,640,2,3],[390,640,3,4],[320,240,4,5]]){await viewport(w,h,g);check(content().scrollWidth<=content().clientWidth+1,'overflow '+w);await capture(i);}
    const scale=document.querySelectorAll('.appearance-section .el-slider__button-wrapper')[3];scale.focus();await batch([{type:'key',action:'down',key:35},{type:'key',action:'up',key:35}]);await saved(s=>s.appearance.textScale===1.4);
-   await viewport(390,640,5);content().scrollTop=0;content().focus();await leave();check(content().scrollWidth<=content().clientWidth+1,'large type overflow');await capture(14);await hover('sidebar');await capture(15);await leave();await hover('header');await capture(16);await leave();await click('.nav-pin');await saved(s=>!s.layout.sidebarCompact);const pin=document.querySelector('.nav-pin').getBoundingClientRect();check(pin.right<=208&&pin.left>=0,'narrow large-type toggle reachable');await capture(19);await click('.nav-pin');await saved(s=>s.layout.sidebarCompact);
+   await viewport(390,640,5);content().scrollTop=0;content().focus();await leave();check(content().scrollWidth<=content().clientWidth+1,'large type overflow');await capture(14);await hover('sidebar');await capture(15);await leave();await hover('header');await capture(16);await leave();await click('.nav-pin');await saved(s=>!s.layout.sidebarCompact);const pin=document.querySelector('.nav-pin').getBoundingClientRect();check(pin.right<=208&&pin.left>=0,'narrow large-type toggle reachable');brandAlignment();sidebarArrow(false);await capture(19);await click('.nav-pin');await saved(s=>s.layout.sidebarCompact);sidebarArrow(true);
    scale.focus();await batch([{type:'key',action:'down',key:36},{type:'key',action:'up',key:36},...Array.from({length:4},()=>[{type:'key',action:'down',key:39},{type:'key',action:'up',key:39}]).flat()]);await saved(s=>s.appearance.textScale===1);content().scrollTop=0;content().focus();
    await viewport(1458,818,6);
    // 设置页四个开关可任意组合；检查实际占位和尺寸，避免把折叠再误作隐藏。
