@@ -23,7 +23,7 @@ pnpm --dir .\web\shell install --frozen-lockfile
 
 先构建 Web，再构建原生宿主：官方网页、公共模块、版本及依赖元数据会写入 EXE。修改官方网页后需重新构建宿主；插件自己的网页构建同步流程不变。默认输出到 `build-webview2-release`。
 
-浏览器自检需要 WebView2 Evergreen 稳定版 Runtime ≥155.0.4283.62 和可用的 Windows 图形会话；自检使用实际内嵌 Shell 和三个磁盘插件，只操作独立隐藏宿主，不操作游戏。
+浏览器自检需要提供宿主所需接口的 WebView2 Evergreen 稳定版 Runtime 和可用的 Windows 图形会话；自检使用实际内嵌 Shell 和三个磁盘插件，只操作独立隐藏宿主，不操作游戏。
 
 `tools/release.ps1 -Tag v1.0.2` 只生成核心 `REFF-1.0.2.zip` 及其 SHA-256，不生成工具包、实验包、示例包或预览版。标签必须与 `version.json` 完全一致。显式 `-Publish` 上传正式 Release；GitHub Actions 推送正式版本标签时自动构建、回归并发布，手动运行可选择只生成资产。发布说明仅使用当前版本的 CHANGELOG 章节。已发布版本的说明更正可通过 `tools/update-release-metadata.ps1 -Tag v1.0.2` 完成，需要已登录的 GitHub CLI；它不改变版本标签或核心附件。
 

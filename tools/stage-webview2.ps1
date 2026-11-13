@@ -63,7 +63,7 @@ foreach ($tool in @('install-reff.ps1','package-files.ps1','collect-installed-co
 Copy-Item -LiteralPath (Join-Path $repoRoot 'config/game-support.json') -Destination $toolsRoot -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'TOOLS-README.md') -Destination (Join-Path $toolsRoot 'README.md') -Force
 $version=(Get-Content -LiteralPath (Join-Path $repoRoot 'version.json') -Raw | ConvertFrom-Json).version
-[ordered]@{schemaVersion=1;backend='webview2';version=$version;embeddedShellVersion=$embedded.version.version;resources='embedded';supportScope='all-reframework-games';minimumWindowsBuild=19045;minimumRuntime='155.0.4283.62';runtimeDistribution='Evergreen shared stable';runtimeIncluded=$false;runtimeDownload='https://developer.microsoft.com/microsoft-edge/webview2/';manualGameValidation='pending';createdUtc=[DateTime]::UtcNow.ToString('o')} |
+[ordered]@{schemaVersion=1;backend='webview2';version=$version;embeddedShellVersion=$embedded.version.version;resources='embedded';supportScope='all-reframework-games';minimumWindowsBuild=19045;minimumRuntime=$embedded.dependencies.webview2.minimumRuntime;runtimeDistribution='Evergreen shared stable';runtimeIncluded=$false;runtimeDownload='https://developer.microsoft.com/microsoft-edge/webview2/';manualGameValidation='pending';createdUtc=[DateTime]::UtcNow.ToString('o')} |
     ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $stageRoot 'reff/package.json') -Encoding utf8
 if ($IncludeExamples) {
     Copy-ReleaseFile (Join-Path $repoRoot 'examples/lua/REFF.examples.lua') 'autorun/REFF.examples.lua'

@@ -135,8 +135,13 @@ void WebViewRuntime::frame_created(ICoreWebView2Frame* frame){
     winrt::check_hresult(frame->add_Destroyed(Callback<ICoreWebView2FrameDestroyedEventHandler>(
         [this,weak](ICoreWebView2Frame*,IUnknown*)->HRESULT{guard([&]{if(auto d=weak.lock()){
             d->ticket.clear();d->dead=true;d->preview_ids.clear();clear_previews();d->services.release_page();}});return S_OK;}).Get(),&token));
-    ComPtr<ICoreWebView2Frame7> frame4;winrt::check_hresult(doc->frame.As(&frame4));
-    winrt::check_hresult(frame4->add_FrameCreated(Callback<ICoreWebView2FrameChildFrameCreatedEventHandler>(
+    // Older runtimes support the plugin frame and its bridge, but have no nested-frame notification.
+    // Plugin responses still carry frame-src 'none' and navigation is checked against the manifest.
+    ComPtr<ICoreWebView2Frame7> frame7;
+    const HRESULT result = doc->frame.As(&frame7);
+    if (result == E_NOINTERFACE) return;
+    winrt::check_hresult(result);
+    winrt::check_hresult(frame7->add_FrameCreated(Callback<ICoreWebView2FrameChildFrameCreatedEventHandler>(
         [this](ICoreWebView2Frame*,auto*)->HRESULT{guard([&]{throw std::runtime_error("nested plugin frame denied");});return S_OK;}).Get(),&token));
 }
 void WebViewRuntime::starting(const std::shared_ptr<Document>& doc,ICoreWebView2NavigationStartingEventArgs* args){
