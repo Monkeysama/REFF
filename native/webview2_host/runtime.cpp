@@ -135,8 +135,8 @@ void WebViewRuntime::frame_created(ICoreWebView2Frame* frame){
     winrt::check_hresult(frame->add_Destroyed(Callback<ICoreWebView2FrameDestroyedEventHandler>(
         [this,weak](ICoreWebView2Frame*,IUnknown*)->HRESULT{guard([&]{if(auto d=weak.lock()){
             d->ticket.clear();d->dead=true;d->preview_ids.clear();clear_previews();d->services.release_page();}});return S_OK;}).Get(),&token));
-    // Older runtimes support the plugin frame and its bridge, but have no nested-frame notification.
-    // Plugin responses still carry frame-src 'none' and navigation is checked against the manifest.
+    // 在 UI 线程探测可选 Frame7；较早 Runtime 可提供插件框架及桥接，但缺少嵌套框架通知。
+    // 缺少该接口时仍保留响应中的 frame-src 'none'，并按 manifest 校验导航，不放宽页面权限。
     ComPtr<ICoreWebView2Frame7> frame7;
     const HRESULT result = doc->frame.As(&frame7);
     if (result == E_NOINTERFACE) return;

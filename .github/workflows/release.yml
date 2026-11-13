@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '正式版本标签，必须匹配 version.json，例如 v1.0.2'
+        description: '正式版本标签，必须匹配 version.json，例如 v1.0.3'
         required: true
         type: string
       publish:

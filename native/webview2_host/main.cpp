@@ -35,7 +35,7 @@ namespace comp = winrt::Windows::UI::Composition;
 namespace capture = winrt::Windows::Graphics::Capture;
 namespace direct = winrt::Windows::Graphics::DirectX;
 using Clock = std::chrono::steady_clock;
-// Actual interface availability determines runtime compatibility.
+// Runtime 兼容性取决于必需接口是否可用，不再按固定版本号设置门槛。
 constexpr wchar_t runtime_download[]=L"https://developer.microsoft.com/microsoft-edge/webview2/";
 
 // 宿主的 COM、WinRT 和图形资源归 UI 线程所有；捕获采用无窗口 Visual，不捕获用户屏幕内容。
