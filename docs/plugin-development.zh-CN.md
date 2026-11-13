@@ -253,6 +253,41 @@ await reff.call<ReffPluginLayout>('ui.layout.set', { padding: null }); // 恢复
 
 接入说明、C ABI、资源同步和示例见 [原生预览接入](native-preview.zh-CN.md)。普通插件不需要注册槽位或增加运行依赖；原有 manifest、Lua 方法和网页接口保持不变。
 
+## 离屏页面的拖拽、文本选择与下拉框
+
+### 禁止原生 OLE 拖拽，不禁止普通选择和复制
+
+REFF 的 WebView2 使用离屏合成，不拥有桌面原生拖放会话。宿主在能力可用时设置 `ICoreWebView2Controller4::AllowExternalDrop = false`（只控制外部文件拖入），并处理 `ICoreWebView2CompositionController5::DragStarting`，将 `Handled` 设为 `true`，阻止 WebView2 发起自己的原生拖放逻辑。宿主不读取 `IDataObject`，也不调用 `DoDragDrop`。
+
+每个文档创建时还会安装捕获期 `dragstart` 防护，包括主 Shell、隔离插件页和重新导航后的文档。图片、链接、`draggable="true"` 元素或已选文本的 HTML 原生拖动会被取消。因此不要用 HTML Drag and Drop API 实现列表排序、模型平移或原生预览取景；使用 Pointer Events、自有拖动状态及 `setPointerCapture()`，并为需要的操作提供键盘/按钮替代入口。REFF 不取消这些指针事件，也不会为防拖拽而全局设置 `user-select: none`。
+
+普通文本、`input`、`textarea` 和 `contenteditable` 的选择、编辑、复制仍应可用；禁止的是把它们拖入桌面 OLE 的动作，不是 Ctrl+C。仅在明确不需要选择的非编辑标签/拖动装饰区域使用可选标记：
+
+```html
+<div data-reff-no-select>只展示状态的非编辑标签</div>
+```
+
+该标记只取消区域内的 `selectstart`，不取消 `pointerdown`、`mousedown` 或原生预览交互；其中的输入框、文本域、可编辑后代仍保留默认选择。自定义元素可能封装封闭 Shadow DOM 输入控件，因此宿主对经过自定义元素的选择事件采取保守放行，不保证该标记作用于其内部。不要把它当作权限/防复制机制。
+
+Runtime 兼容性按实际接口探测：缺少上述可选 COM 接口（`E_NOINTERFACE`）时不提高最低 Runtime 门槛，仍使用每文档的 `dragstart` 防护；其他接口错误会中止初始化。诊断摘要中的 `externalDropGuardAvailable` 和 `nativeDragGuardAvailable` 分别表示原生层覆盖。旧 Runtime 无 `DragStarting` 时，不能据此声称所有非 DOM/浏览器内部拖放路径均有原生兜底，需要单独验证；独立页面测试也不等于游戏内验收。
+
+### 不依赖原生 `<select>` 的桌面弹出列表
+
+原生 `<select>` 的弹出列表可能由独立原生窗口/浏览器表面呈现，不属于当前离屏捕获的可靠能力；页面中的控件可见并不保证弹出层能进入游戏共享帧。不要用隐藏窗口、坐标补偿或外部系统输入来绕过此限制，也不要宣称所有 Runtime 的原生弹出框已经支持。
+
+Vue 页面推荐使用 **Element Plus** 的公共 `ElSelect` / `ElOption`（不是另一个同名库）。REFF 的 `@reff/ui` 实际导出这两个组件，`installReffUi(createApp(App))` 会注册它们；沿用本文前述的公共 CSS、Vite external 映射和安装器，不要再次打包一份完整 Element Plus。模板中可以使用：
+
+```html
+<el-select v-model="selectedValue" aria-label="选择项目">
+  <el-option label="项目 A" value="a" />
+  <el-option label="项目 B" value="b" />
+</el-select>
+```
+
+`selectedValue` 由插件维护为响应式值。下拉层由当前文档的 DOM 渲染；若放在隔离 iframe 中，仍受该文档/iframe 的裁剪边界约束。React/原生 HTML 插件应使用可键盘操作、在页面 DOM 中渲染的 listbox/combobox 组件，不应仅为一个下拉框另引入 Vue 或 Element Plus。
+
+开启 `reframework/data/REFF/development.json` 中的 `{"enabled":true}` 后，每份注入文档会对初始及后续动态添加的原生 `<select>` 发出一次控制台告警，并在焦点进入时补查；动态创建和导航的隔离页由其自己的注入脚本处理，不依赖父页面跨源扫描。告警不包含选项/输入内容，不自动替换控件，也不改变焦点或键盘语义。普通文档树中的动态子树受观察；未获焦的 Shadow DOM（尤其封闭 Shadow Root）内部不在完整扫描范围内，不能声称告警覆盖全部自定义控件。关闭开发模式后不安装该观察器。
+
 ## 生命周期与安全边界
 
 - 页面可能因 Reset Scripts、宿主重启、设备重建或游戏退出而销毁并重建。
