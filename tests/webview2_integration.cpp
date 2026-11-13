@@ -222,6 +222,8 @@ int wmain(int argc,wchar_t** argv){
                         }
                     }else if(behavior&&checkpoint=="input"){
                         // 只向本驱动 Job 内的隐藏宿主发消息；测试批次不接触系统/游戏输入或剪贴板。
+                        // 只记录独立夹具内置的输入批次，定位浏览器默认行为/暂停造成的挂起；不采集游戏输入。
+                        diagnostics<<Json{{"inputBatch",(*message)["result"]["messages"]}}.dump()<<'\n';diagnostics.flush();
                         for(const auto& input:(*message)["result"]["messages"])channel.send(input);
                     }else if(behavior&&checkpoint=="marker"){
                         std::ofstream(fixture/L"plugins/example.vue/.reff-dev-version")<<GetTickCount64();

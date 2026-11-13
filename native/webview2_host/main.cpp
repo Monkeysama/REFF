@@ -38,6 +38,15 @@ using Clock = std::chrono::steady_clock;
 // Runtime 兼容性取决于必需接口是否可用，不再按固定版本号设置门槛。
 constexpr wchar_t runtime_download[]=L"https://developer.microsoft.com/microsoft-edge/webview2/";
 
+// IPC 按钮编号固定为左/右/中 = 0/1/2；仅 UI 线程使用，不能与 DOM 的 button 编号混淆。
+constexpr COREWEBVIEW2_MOUSE_EVENT_KIND mouse_down_kinds[]{COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN,
+    COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN,COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN};
+constexpr COREWEBVIEW2_MOUSE_EVENT_KIND mouse_up_kinds[]{COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP,
+    COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP,COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP};
+constexpr COREWEBVIEW2_MOUSE_EVENT_KIND mouse_double_kinds[]{COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOUBLE_CLICK,
+    COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOUBLE_CLICK,COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOUBLE_CLICK};
+constexpr UINT mouse_virtual_keys[]{MK_LBUTTON,MK_RBUTTON,MK_MBUTTON};
+
 // 宿主的 COM、WinRT 和图形资源归 UI 线程所有；捕获采用无窗口 Visual，不捕获用户屏幕内容。
 class WebViewHost {
 public:
@@ -376,9 +385,13 @@ private:
         for(const int key:pressed_keys){json args={{"type","keyUp"},{"windowsVirtualKeyCode",key},{"modifiers",0}};
             reff::webview2_key_identity(args,key,0,0);cdp(L"Input.dispatchKeyEvent",args);}
         pressed_keys.clear();
-        if(composition){for(const bool right:{false,true})if(pressed_buttons&(right?2:1))
-            composition->SendMouseInput(right?COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP:COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP,
-                COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,0,last_pointer);
+        if(composition){
+            // 失焦/隐藏也释放中键；逐个释放时保留其他已按按钮，避免网页拖动状态粘滞。
+            for(int button=0;button<3;++button)if(pressed_buttons&(1<<button)){
+                pressed_buttons&=~(1<<button);UINT keys{};
+                for(int remaining=0;remaining<3;++remaining)if(pressed_buttons&(1<<remaining))keys|=mouse_virtual_keys[remaining];
+                composition->SendMouseInput(mouse_up_kinds[button],static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(keys),0,last_pointer);
+            }
             composition->SendMouseInput(COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE,COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,0,{0,0});}
         pressed_buttons=0;
         // 先让原焦点文档收到松键，再移开 iframe 焦点；ExecuteScript 不参与 CDP 队列，直接调用会抢跑。
@@ -437,18 +450,19 @@ private:
         if(type=="mouse") {
             const auto action=message.value("action",std::string{});
             auto kind=COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE;
-            const bool right=message.value("button",0)==1;
+            const int button=message.value("button",0);
+            if((action=="down"||action=="up")&&(button<0||button>=3))return;
             if(action=="wheel")kind=COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL;
-            else if(action=="down")kind=right?COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN:COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN;
-            else if(action=="up")kind=right?COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP:COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP;
+            else if(action=="down")kind=mouse_down_kinds[button];
+            else if(action=="up")kind=mouse_up_kinds[button];
             else if(message.value("leave",false))kind=COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE;
             const int flags=message.value("modifiers",0);
-            UINT keys{};if(flags&2)keys|=MK_SHIFT;if(flags&4)keys|=MK_CONTROL;if(flags&16)keys|=MK_LBUTTON;if(flags&64)keys|=MK_RBUTTON;
+            UINT keys{};if(flags&2)keys|=MK_SHIFT;if(flags&4)keys|=MK_CONTROL;if(flags&16)keys|=MK_LBUTTON;if(flags&32)keys|=MK_MBUTTON;if(flags&64)keys|=MK_RBUTTON;
             if(kind==COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE)keys=0;
             if(action=="down"){
-                pressed_buttons|=right?2:1;
-                if(message.value("clickCount",1)==2)kind=right?COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOUBLE_CLICK:COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOUBLE_CLICK;
-            }else if(action=="up")pressed_buttons&=~(right?2:1);
+                pressed_buttons|=1<<button;keys|=mouse_virtual_keys[button];
+                if(message.value("clickCount",1)==2)kind=mouse_double_kinds[button];
+            }else if(action=="up"){pressed_buttons&=~(1<<button);keys&=~mouse_virtual_keys[button];}
             POINT point{message.value("x",0),message.value("y",0)};last_pointer=point;
             if(kind==COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE)point={0,0};
             winrt::check_hresult(composition->SendMouseInput(kind,static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(keys),
