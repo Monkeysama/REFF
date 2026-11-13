@@ -35,8 +35,7 @@ namespace comp = winrt::Windows::UI::Composition;
 namespace capture = winrt::Windows::Graphics::Capture;
 namespace direct = winrt::Windows::Graphics::DirectX;
 using Clock = std::chrono::steady_clock;
-// 以实测正式 Runtime 作为保守下限；不把 SDK 版本或 API 理论下限冒充已验证环境。
-constexpr wchar_t minimum_runtime[]=L"155.0.4283.62";
+// Actual interface availability determines runtime compatibility.
 constexpr wchar_t runtime_download[]=L"https://developer.microsoft.com/microsoft-edge/webview2/";
 
 // 宿主的 COM、WinRT 和图形资源归 UI 线程所有；捕获采用无窗口 Visual，不捕获用户屏幕内容。
@@ -70,13 +69,12 @@ public:
         const auto get_version=reinterpret_cast<RtlVersion>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"RtlGetVersion"));
         if(!get_version || get_version(&os)!=0)throw std::runtime_error("OS version detection failed");
         report["osBuild"]=os.dwBuildNumber;report["minimumOsBuild"]=19045;
-        report["minimumRuntime"]=winrt::to_string(minimum_runtime);
+        report["minimumRuntime"]="0.0.0.0";
         report["runtimeDownload"]=winrt::to_string(runtime_download);
         if(os.dwMajorVersion<10 || os.dwBuildNumber<19045)
             throw std::runtime_error("Windows 10 22H2 (19045) or later required; other OS builds not validated");
         options=Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
         reff::WebViewRuntime::configure_options(options.Get());
-        winrt::check_hresult(options->put_TargetCompatibleBrowserVersion(minimum_runtime));
         ComPtr<ICoreWebView2EnvironmentOptions7> options7;winrt::check_hresult(options.As(&options7));
         winrt::check_hresult(options7->put_ReleaseChannels(COREWEBVIEW2_RELEASE_CHANNELS_STABLE));
         LPWSTR version{};
@@ -308,8 +306,6 @@ private:
         report["runtime"]=winrt::to_string(version);
         if(version.empty() || version.find_first_not_of(L"0123456789.")!=std::wstring::npos)
             throw std::runtime_error("Stable Evergreen Runtime required; preview channels are not supported");
-        int comparison{};winrt::check_hresult(CompareBrowserVersions(version.c_str(),minimum_runtime,&comparison));
-        if(comparison<0)throw std::runtime_error("WebView2 Runtime too old; update Evergreen Runtime from the runtimeDownload URL");
     }
     // 诊断仅保存耗时分布，不保存输入；上限防止长时间运行无限积累样本。
     static json percentiles(std::vector<double> samples) {
