@@ -154,6 +154,27 @@ public:
         ComPtr<ICoreWebView2Settings3> settings3;winrt::check_hresult(settings.As(&settings3));
         winrt::check_hresult(settings3->put_AreBrowserAcceleratorKeysEnabled(FALSE));
         EventRegistrationToken token{};
+        // 离屏宿主不拥有桌面 OLE 拖拽会话。按 Runtime 能力禁用拖入与原生拖出；不修改 SDK 或提高版本门槛。
+        ComPtr<ICoreWebView2Controller4> drop_controller;
+        const auto drop_probe=controller.As(&drop_controller);
+        report["externalDropGuardAvailable"]=SUCCEEDED(drop_probe);
+        if(SUCCEEDED(drop_probe))winrt::check_hresult(drop_controller->put_AllowExternalDrop(FALSE));
+        else if(drop_probe!=E_NOINTERFACE)winrt::check_hresult(drop_probe);
+        ComPtr<ICoreWebView2CompositionController5> drag_controller;
+        const auto drag_probe=composition.As(&drag_controller);
+        report["nativeDragGuardAvailable"]=SUCCEEDED(drag_probe);
+        if(SUCCEEDED(drag_probe)){
+            winrt::check_hresult(drag_controller->add_DragStarting(Callback<ICoreWebView2DragStartingEventHandler>(
+                [this](ICoreWebView2CompositionController*,ICoreWebView2DragStartingEventArgs* args)->HRESULT{
+                    // Handled=TRUE 使 WebView2 不启动自己的 drag/drop；不读取 IDataObject，不调用 DoDragDrop。
+                    const auto hr=args->put_Handled(TRUE);
+                    if(FAILED(hr))fail("Failed to suppress native drag/drop",hr);
+                    return hr;
+                }).Get(),&token));
+        }else if(drag_probe!=E_NOINTERFACE)winrt::check_hresult(drag_probe);
+        // 旧 Runtime 缺少新接口时仍由每个文档的捕获期 dragstart 防护兜底，摘要明确报告原生层覆盖缺口。
+        event("drag-drop-policy",{{"externalDropGuardAvailable",SUCCEEDED(drop_probe)},
+            {"nativeDragGuardAvailable",SUCCEEDED(drag_probe)},{"documentDragGuard",true}});
         // 致命浏览器故障终止本次会话，由现有游戏服务释放输入并等待用户重新打开；不重放任何操作。
         winrt::check_hresult(web->add_ProcessFailed(Callback<ICoreWebView2ProcessFailedEventHandler>(
             [this](ICoreWebView2*,ICoreWebView2ProcessFailedEventArgs* args)->HRESULT {

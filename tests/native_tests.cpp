@@ -6,6 +6,7 @@
 #include "../native/plugin/panel_resize.hpp"
 #include "../native/plugin/host_health.hpp"
 #include "../native/plugin/mouse_click.hpp"
+#include "../native/plugin/input_ownership.hpp"
 #include "../native/plugin/settings.hpp"
 #include "../native/plugin/keyboard_capture.hpp"
 #include "../native/plugin/keyboard_event.hpp"
@@ -137,6 +138,112 @@ int main() {
         for (int i = 0; i < reff::queue_limit; ++i) require(queue.push(i), "queue capacity");
         require(!queue.push(999), "queue backpressure");
         require(queue.pop().value() == 0, "queue FIFO"); queue.clear(); require(!queue.pop(), "queue clear");
+        // 纯窗口消息边界：模拟显隐/失焦/穿透改变；不读硬件状态、不启动游戏或注入输入。
+        {
+            using Ownership = reff::InputOwnership;
+            Ownership inputs;
+            auto legacy = [&](UINT message, WPARAM key, LPARAM native, bool game) {
+                return inputs.route(Ownership::legacy(message, key, native).view(), game);
+            };
+            auto mouse = [&](UINT message, bool game, WPARAM buttons = 0) {
+                return legacy(message, buttons, 0, game);
+            };
+            require(mouse(WM_LBUTTONDOWN, true), "suspended activation click down belongs to game");
+            require(mouse(WM_LBUTTONUP, false), "activation click up passes after focus restoration");
+            require(!inputs.has_reff_owned(), "game activation click never extends blocker");
+            require(!mouse(WM_RBUTTONDOWN, false), "visible mouse down belongs to REFF");
+            require(inputs.has_reff_owned(), "REFF mouse down extends blocker");
+            require(!mouse(WM_RBUTTONDOWN, true), "closed mouse repeated down retains REFF owner");
+            require(!mouse(WM_RBUTTONUP, true), "closed mouse up retains REFF owner");
+            require(!inputs.has_reff_owned(), "last release clears pending blocker");
+            require(mouse(WM_RBUTTONUP, false), "unknown mouse up passes even while visible");
+            require(!mouse(WM_LBUTTONDBLCLK, false) && !mouse(WM_LBUTTONUP, true), "double click is a paired down");
+            require(!mouse(WM_MBUTTONDBLCLK, false) && !mouse(WM_MBUTTONUP, true), "middle double click ownership without browser support");
+            const auto x1 = MAKEWPARAM(0, XBUTTON1), x2 = MAKEWPARAM(0, XBUTTON2);
+            require(!mouse(WM_XBUTTONDBLCLK, false, x1), "X1 double click down captured");
+            require(mouse(WM_XBUTTONUP, false, x2), "unknown X2 up does not release X1");
+            require(inputs.has_reff_owned() && !mouse(WM_XBUTTONUP, true, x1), "X1 up retains own identity");
+            constexpr LPARAM a_native = 0x1eLL << 16;
+            require(!legacy(WM_KEYDOWN, 'A', a_native, false), "visible keyboard down captured");
+            require(inputs.character_route(WM_CHAR, a_native) == std::optional<bool>{false}, "captured character follows held scan not character value");
+            require(inputs.character_route(WM_SYSCHAR, a_native | (1LL << 30)) == std::optional<bool>{false}, "closed held system repeat character swallowed");
+            require(!inputs.character_route(WM_CHAR, a_native | (1LL << 24)).has_value(), "character extended bit must match owner");
+            require(!inputs.character_route(WM_CHAR, 0).has_value(), "zero-scan IME character has no physical owner");
+            require(!inputs.character_route(WM_IME_CHAR, a_native).has_value(), "IME character is not treated as physical key repeat");
+            require(!legacy(WM_KEYDOWN, 'A', a_native | (1LL << 30), true), "closed keyboard repeat swallowed");
+            require(!legacy(WM_KEYUP, 'A', a_native | (3LL << 30), true), "closed keyboard up swallowed");
+            require(!inputs.character_route(WM_CHAR, a_native).has_value(), "late character after up has no reliable owner");
+            require(legacy(WM_KEYDOWN, 'A', a_native, true) && inputs.character_route(WM_CHAR, a_native) == std::optional<bool>{true}, "game-owned character passes when panel opens");
+            require(legacy(WM_KEYUP, 'A', a_native, false), "game-owned character sequence release passes");
+            require(legacy(WM_KEYUP, 'A', a_native | (3LL << 30), false), "unknown keyboard up passes");
+            constexpr LPARAM ctrl_native = 0x1dLL << 16;
+            require(!legacy(WM_SYSKEYDOWN, VK_CONTROL, ctrl_native, false), "legacy system down captured");
+            require(legacy(WM_SYSKEYUP, VK_CONTROL, ctrl_native | (1LL << 24), false), "extended key is distinct");
+            require(!legacy(WM_KEYUP, VK_CONTROL, ctrl_native, true), "system and normal messages share key identity");
+
+            RAWKEYBOARD keyboard{}; keyboard.VKey = 'A'; keyboard.MakeCode = 0x1e;
+            auto raw_key = [&](bool game, std::uintptr_t device = 1) {
+                return inputs.route(Ownership::raw_keyboard(keyboard, device).view(), game);
+            };
+            require(!raw_key(false), "raw keyboard down captured");
+            require(legacy(WM_KEYUP, 'A', a_native, false) && inputs.has_reff_owned(), "legacy up cannot clear raw held key");
+            keyboard.Message = WM_KEYUP; // direction is Flags, not the advisory Message field.
+            require(!raw_key(true), "raw repeat direction ignores contradictory message");
+            keyboard.Flags = RI_KEY_BREAK | RI_KEY_E0;
+            require(raw_key(false), "raw E0 is distinct from unextended key");
+            keyboard.Flags = RI_KEY_BREAK | RI_KEY_E1;
+            require(raw_key(false), "raw E1 is distinct from E0 and unextended key");
+            keyboard.Flags = RI_KEY_BREAK;
+            require(raw_key(false, 2) && inputs.has_reff_owned(), "raw devices keep independent ownership");
+            ++keyboard.MakeCode;
+            require(raw_key(false), "raw scan code is an identity component");
+            --keyboard.MakeCode;
+            keyboard.VKey = 'B';
+            require(raw_key(false), "raw VKey is an identity component");
+            keyboard.VKey = 'A';
+            require(!raw_key(true) && !inputs.has_reff_owned(), "raw break releases original owner");
+            keyboard.Flags = RI_KEY_E0;
+            require(raw_key(true), "raw key game down");
+            keyboard.Flags |= RI_KEY_BREAK;
+            require(raw_key(false), "raw game break passes after panel opens");
+            keyboard.VKey = 255;
+            require(Ownership::raw_keyboard(keyboard).size == 0, "invalid raw VKey has no held owner");
+            keyboard.VKey = 'A'; keyboard.MakeCode = Ownership::overrun_make_code;
+            require(Ownership::raw_keyboard(keyboard).size == 0, "raw keyboard overrun ignored");
+            require(Ownership::legacy(WM_CHAR, 'A', 0).size == 0, "character messages are not held keys");
+
+            RAWMOUSE raw{};
+            auto raw_mouse = [&](USHORT flags, bool game, std::uintptr_t device = 1) {
+                raw.usButtonFlags = flags;
+                return inputs.route(Ownership::raw_mouse(raw, device).view(), game);
+            };
+            require(raw_mouse(RI_MOUSE_LEFT_BUTTON_DOWN, true), "raw activation down passes");
+            require(!mouse(WM_LBUTTONDOWN, false), "legacy down remains independent of raw owner");
+            require(raw_mouse(RI_MOUSE_LEFT_BUTTON_UP, false), "raw activation up passes after restore");
+            require(!mouse(WM_LBUTTONUP, true), "legacy captured up stays swallowed");
+            require(!raw_mouse(RI_MOUSE_RIGHT_BUTTON_DOWN, false), "raw REFF right down");
+            require(raw_mouse(RI_MOUSE_LEFT_BUTTON_UP | RI_MOUSE_BUTTON_4_DOWN, false), "mixed unknown release and new down passes entire raw packet");
+            require(raw_mouse(RI_MOUSE_BUTTON_4_UP, false), "mixed new down committed to actual game route");
+            require(!raw_mouse(RI_MOUSE_RIGHT_BUTTON_UP, true), "independent raw REFF release swallowed");
+            require(!raw_mouse(RI_MOUSE_RIGHT_BUTTON_DOWN, false), "mixed conflict REFF owner setup");
+            require(raw_mouse(RI_MOUSE_LEFT_BUTTON_DOWN, true), "mixed conflict game owner setup");
+            require(raw_mouse(RI_MOUSE_LEFT_BUTTON_UP | RI_MOUSE_RIGHT_BUTTON_UP, false), "mixed existing game release wins over REFF release");
+            require(!inputs.has_reff_owned(), "mixed releases retire both held owners");
+            require(!raw_mouse(RI_MOUSE_RIGHT_BUTTON_DOWN, false), "REFF-only packet setup");
+            require(!raw_mouse(RI_MOUSE_RIGHT_BUTTON_UP | RI_MOUSE_BUTTON_4_DOWN, true), "REFF release blocks whole packet despite new down passthrough default");
+            require(!raw_mouse(RI_MOUSE_BUTTON_4_UP, true), "blocked mixed new down commits actual REFF owner");
+            require(raw_mouse(RI_MOUSE_LEFT_BUTTON_DOWN, true), "mixed repeat game owner setup");
+            require(raw_mouse(RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_BUTTON_4_DOWN, false), "game-owned repeated down forces mixed packet passthrough");
+            require(raw_mouse(RI_MOUSE_BUTTON_4_UP | RI_MOUSE_LEFT_BUTTON_UP, false), "game-forced new down owns its later release");
+            require(!raw_mouse(RI_MOUSE_BUTTON_5_DOWN, false), "raw X2 down captured");
+            require(!raw_mouse(RI_MOUSE_BUTTON_5_DOWN, true), "raw repeated down preserves owner after closing");
+            require(raw_mouse(RI_MOUSE_BUTTON_5_UP, false, 2) && inputs.has_reff_owned(), "raw mouse device is distinct");
+            require(!raw_mouse(RI_MOUSE_BUTTON_5_UP, true), "raw X2 up swallowed after closing");
+            raw.usButtonFlags = RI_MOUSE_WHEEL; raw.usFlags = MOUSE_MOVE_ABSOLUTE; raw.lLastX = 100;
+            require(Ownership::raw_mouse(raw).size == 0, "wheel and movement have no held ownership");
+            require(raw_mouse(RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_LEFT_BUTTON_UP, false), "same packet down-up ambiguity prioritizes unknown release");
+            require(!inputs.has_reff_owned(), "no stuck REFF owner after paired packet");
+        }
         // Windows 将快速第二次按下替换为 DBLCLK；浏览器 的按下与抬起必须保持相同点击次数。
         reff::MouseClickTracker clicks;
         auto left_down = clicks.translate(WM_LBUTTONDOWN);

@@ -6,6 +6,7 @@
 #include "panel_resize.hpp"
 #include "host_health.hpp"
 #include "mouse_click.hpp"
+#include "input_ownership.hpp"
 #include "settings.hpp"
 #include "window_regions.hpp"
 #include "viewport.hpp"
@@ -116,6 +117,10 @@ struct Runtime {
     std::atomic_bool message_dispatching{};
     // Win32 会把快速第二次按下编码为 DBLCLK；跟踪器保留到对应抬起，仅由窗口线程访问。
     MouseClickTracker mouse_click_tracker;
+    // ownership 只归窗口线程；关闭/断线/失焦均不清空，必须等各 lane 的真实 up。
+    InputOwnership input_ownership;
+    // Lua/IPC 不触碰 ownership 容器，只读取窗口线程发布的 held 摘要。
+    std::atomic_bool reff_input_pending{};
     UINT cursor_sync_message{};
     CursorVisibility cursor;
     HCURSOR previous_cursor{}, arrow_cursor{};
@@ -400,7 +405,7 @@ bool map_virtual_cursor_to_panel(int x, int y, int& panel_x, int& panel_y) {
 
 // 仅在进入、离开或面板内移动时发送浏览器鼠标事件。浏览器 不再绘制指针，原生渲染器负责全客户区视觉光标。
 void dispatch_virtual_cursor_move(int modifiers) {
-    if (!runtime->visible || !runtime->connected || !runtime->channel.connected()) return;
+    if (!runtime->visible || runtime->focus_suspended || !runtime->connected || !runtime->channel.connected()) return;
     const auto [x, y] = runtime->cursor_input.cursor.position();
     int panel_x{}, panel_y{};
     const bool inside = map_virtual_cursor_to_panel(x, y, panel_x, panel_y);
@@ -583,6 +588,19 @@ void suspend_for_focus() {
 void restore_after_focus(HWND window) {
     if (!runtime->focus_suspended || !runtime->requested_visible || !runtime->connected || !runtime->ready) return;
     if (GetForegroundWindow() != window) return;
+    // Present 也会探测焦点，但它只能请求窗口线程恢复，不能改写 CursorInput。
+    if (GetCurrentThreadId() != GetWindowThreadProcessId(window, nullptr)) { request_cursor_sync(); return; }
+    // Alt-Tab 期间设备/物理坐标可能已变化，窗口线程重建源，不能沿用旧 relative 判定。
+    const auto [width, height] = runtime->cursor_input.cursor.bounds();
+    const auto [old_x, old_y] = runtime->cursor_input.cursor.position();
+    POINT physical{old_x, old_y};
+    if (!GetCursorPos(&physical) || !ScreenToClient(window, &physical)) physical = {old_x, old_y};
+    runtime->cursor_input = CursorInput{};
+    runtime->cursor_input.resume(width, height, physical.x, physical.y);
+    runtime->pointer_in_panel = false;
+    runtime->last_panel_x = runtime->last_panel_y = -1;
+    runtime->last_browser_move_tick = 0;
+    runtime->pending_virtual_cursor_dispatch = true;
     runtime->focus_suspended = false;
     runtime->cursor_blocked = true;
     refresh_keyboard_capture();
@@ -1030,6 +1048,13 @@ int lua_ready(lua_State* state) {
     return 0;
 }
 int lua_visible(lua_State* state) { lua_pushboolean(state, runtime->visible && runtime->connected); return 1; }
+// Lua 线程只读原子状态：可见或尚有 REFF-owned held 输入时维持外部 blocker 登记。
+// 这不是 GetAsyncKeyState/DirectInput 等轮询已被阻断的保证，不改变 is_visible 的语义。
+int lua_input_blocking(lua_State* state) {
+    lua_pushboolean(state, runtime->visible.load(std::memory_order_acquire) ||
+        runtime->reff_input_pending.load(std::memory_order_acquire));
+    return 1;
+}
 // Lua 插件查询当前桥接是否已完成就绪握手；仅返回布尔值，不暴露会话或指针。
 int lua_ready_state(lua_State* state) { lua_pushboolean(state, runtime->ready && runtime->connected); return 1; }
 
@@ -1042,6 +1067,7 @@ void on_lua_created(lua_State* state) {
     lua_pushcfunction(state, lua_emit); lua_setfield(state, -2, "emit");
     lua_pushcfunction(state, lua_ready); lua_setfield(state, -2, "set_ready");
     lua_pushcfunction(state, lua_visible); lua_setfield(state, -2, "is_visible");
+    lua_pushcfunction(state, lua_input_blocking); lua_setfield(state, -2, "is_input_blocking");
     lua_pushcfunction(state, lua_ready_state); lua_setfield(state, -2, "is_ready");
     lua_setglobal(state, "reff_native");
     api->functions->unlock_lua();
@@ -1215,18 +1241,13 @@ void on_reset() {
     set_visible(false); std::lock_guard lock(runtime->renderer_mutex); runtime->renderer.reset(); runtime->rendered_frame.reset();
 }
 
-// Windows 消息转换为网页输入；Raw Input/游戏轮询的覆盖范围仍需游戏内验证。
-bool on_message(void* window, unsigned int message, unsigned long long wparam, long long lparam) {
-    HWND game_window = static_cast<HWND>(window);
-    // REFramework 的窗口过程带递归锁；若系统在处理消息时再次回调插件，直接放行内层消息。
-    bool expected = false;
-    if (!runtime->message_dispatching.compare_exchange_strong(expected, true)) return true;
-    struct DispatchGuard { std::atomic_bool& flag; ~DispatchGuard() { flag.store(false); } } guard{runtime->message_dispatching};
-    if (!ensure_cursor_window(game_window)) return true;
-    std::lock_guard pointer_lock(runtime->pointer_mutex);
-    synchronize_virtual_cursor_bounds(game_window);
+// 窗口线程的网页/面板副作用层；调用者已处理 owner 硬约束并持有 pointer_mutex。
+// 返回值只是新 down 的默认归属，最终整包路由仍由外层状态机提交。
+bool dispatch_ui_message(HWND game_window, unsigned int message, unsigned long long wparam, long long lparam,
+                         const RAWINPUT* raw_input) {
     if (runtime->cursor_sync_message && message == runtime->cursor_sync_message) {
         runtime->cursor_sync_pending = false;
+        restore_after_focus(game_window);
         if (runtime->viewport_reset_requested.exchange(false)) commit_viewport_resize(true);
         sync_cursor(game_window);
         dispatch_virtual_cursor_move(0);
@@ -1257,7 +1278,7 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
         restore_after_focus(game_window); sync_cursor(game_window); return true;
     }
     if (!runtime->visible || !runtime->connected || !runtime->channel.connected()) return true;
-    // 注册了 INPUTSINK 的游戏在后台仍可能收到 Raw Input；暂停期间必须完整放行，不能更新网页指针或吞掉系统输入。
+    // INPUTSINK 后台包不进入网页；默认放行新输入，已有 REFF owner 仍由外层配对至 up。
     if (runtime->focus_suspended) return true;
     if (runtime->pending_virtual_cursor_dispatch) {
         dispatch_virtual_cursor_move(0); runtime->pending_virtual_cursor_dispatch = false;
@@ -1291,9 +1312,10 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
             // WM_INPUT 的 lParam 是临时 HRAWINPUT，只能在本次窗口消息内读取；不跨线程保存。
             bool input_passthrough = runtime->mouse_passthrough.load();
             if (GET_RAWINPUT_CODE_WPARAM(wparam) == RIM_INPUT) {
-                UINT size = sizeof(RAWINPUT); RAWINPUT raw{};
-                const UINT read = GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER));
-                if (read != static_cast<UINT>(-1) && raw.header.dwType == RIM_TYPEKEYBOARD) {
+                // 外层已在 HRAWINPUT 有效期内读取，所有权与网页层使用同一份只读快照。
+                if (!raw_input) return true; // 读失败不能按鼠标设置误吞未知键盘包。
+                const auto& raw = *raw_input;
+                if (raw.header.dwType == RIM_TYPEKEYBOARD) {
                     input_passthrough = runtime->keyboard_passthrough.load() && !runtime->web_input_active.load();
                     // RIDEV_NOLEGACY 会抑制透明 EDIT 所需的 WM_KEY*。仅在该能力确实启用时转译，
                     // 避免同时存在传统消息的游戏产生重复按键或重复提交。
@@ -1317,7 +1339,7 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
                         return false;
                     }
 #endif
-                } else if (read != static_cast<UINT>(-1) && raw.header.dwType == RIM_TYPEMOUSE) {
+                } else if (raw.header.dwType == RIM_TYPEMOUSE) {
                     const bool was_relative = runtime->cursor_input.relative();
                     POINT physical{};
                     if (GetCursorPos(&physical) && ScreenToClient(game_window, &physical)) {
@@ -1419,6 +1441,61 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
             return runtime->mouse_passthrough.load();
     } catch (...) { set_visible(false); }
     return true;
+}
+
+// REFramework 消息边界：窗口线程独占状态机，早退也必须结算 down/repeat/up。
+// ABI 只能整包 bool，禁止拆包、改 RAWINPUT 或合成 release；轮询输入不在此边界内。
+bool on_message(void* window, unsigned int message, unsigned long long wparam, long long lparam) {
+    const HWND game_window = static_cast<HWND>(window);
+    if (!game_window || GetCurrentThreadId() != GetWindowThreadProcessId(game_window, nullptr)) return true;
+    if (runtime->game_window.load() && runtime->game_window.load() != game_window) return true;
+    // HRAWINPUT 只在本次回调有效；包含 INPUTSINK 后台包，但绝不在后台转发网页。
+    RAWINPUT raw{};
+    const RAWINPUT* raw_input = nullptr;
+    auto packet = InputOwnership::legacy(message, static_cast<WPARAM>(wparam), static_cast<LPARAM>(lparam));
+    if (message == WM_INPUT) {
+        UINT size = sizeof(raw);
+        const UINT read = GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER));
+        if (read != static_cast<UINT>(-1) && read >= sizeof(RAWINPUTHEADER)) {
+            const auto device = reinterpret_cast<std::uintptr_t>(raw.header.hDevice);
+            if (raw.header.dwType == RIM_TYPEKEYBOARD && read >= offsetof(RAWINPUT, data) + sizeof(RAWKEYBOARD)) {
+                raw_input = &raw;
+                packet = InputOwnership::raw_keyboard(raw.data.keyboard, device);
+            } else if (raw.header.dwType == RIM_TYPEMOUSE && read >= offsetof(RAWINPUT, data) + sizeof(RAWMOUSE)) {
+                raw_input = &raw;
+                packet = InputOwnership::raw_mouse(raw.data.mouse, device);
+            }
+        }
+        // 未识别/读失败的包没有可验证的配对关系，保守交回游戏。
+        if (!raw_input) return true;
+    }
+    const auto character_owner = runtime->input_ownership.character_route(message, static_cast<LPARAM>(lparam));
+    auto route = [&](bool default_game) {
+        const bool game = character_owner.has_value() ? *character_owner : runtime->input_ownership.route(packet.view(), default_game);
+        runtime->reff_input_pending.store(runtime->input_ownership.has_reff_owned(), std::memory_order_release);
+        return game;
+    };
+    bool expected = false;
+    if (!runtime->message_dispatching.compare_exchange_strong(expected, true)) {
+        // 系统重入只结算 owner，不能再次进入网页/几何/光标副作用或重锁 pointer_mutex。
+        return route(true);
+    }
+    struct DispatchGuard { std::atomic_bool& flag; ~DispatchGuard() { flag.store(false); } } guard{runtime->message_dispatching};
+    if (!ensure_cursor_window(game_window)) return route(true);
+    std::lock_guard pointer_lock(runtime->pointer_mutex);
+    synchronize_virtual_cursor_bounds(game_window);
+    const auto forced = character_owner.has_value() ? character_owner : runtime->input_ownership.forced_route(packet.view());
+    // game-owned repeat/up（含可配对的派生字符）和 unknown-up 不进入网页，也不能触发 Escape/热键副作用。
+    // 混包内新 down 也必须按实际放行记录 game，不能事后误记为 REFF。
+    if (forced.value_or(false)) return route(true);
+    // 新 down 的副作用可能先关闭面板；在执行前保守发布候选，避免 Lua 观察到 visible=false
+    // 到 held 提交之间的空窗。route 会立即按真实整包选择刷新摘要。
+    for (const auto& event : packet.view()) if (!event.up) {
+        runtime->reff_input_pending.store(true, std::memory_order_release);
+        break;
+    }
+    const bool default_game = dispatch_ui_message(game_window, message, wparam, lparam, raw_input);
+    return route(default_game);
 }
 }
 

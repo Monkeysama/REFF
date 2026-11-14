@@ -106,13 +106,19 @@ int wmain(int argc, wchar_t** argv) {
         const auto missing_host = std::filesystem::absolute(argv[1]).parent_path().parent_path() / L"reff/reff-webview2-host.exe";
         if (std::filesystem::exists(missing_host)) throw std::runtime_error("failure fixture unexpectedly contains a host");
         for (int attempt = 1; attempt <= 2; ++attempt) {
-            message(window, WM_KEYDOWN, VK_HOME, 0);
+            // 本夹具直接调用 DLL 回调，不注入系统输入；模拟真实成对按键以验证隐藏后的释放隔离。
+            if (message(window, WM_KEYDOWN, VK_HOME, 0)) throw std::runtime_error("Home down escaped REFF");
+            check_script("assert(reff_native.is_input_blocking())");
             const auto deadline = GetTickCount64() + 3000;
             while (startup_failures.load() < attempt && GetTickCount64() < deadline) Sleep(10);
             if (startup_failures.load() != attempt) throw std::runtime_error("Home retry did not complete failure cleanup");
-            check_script("assert(not reff_native.is_visible()); assert(not reff_native.is_ready()); assert(reff_native.poll()==nil)");
+            check_script("assert(not reff_native.is_visible()); assert(not reff_native.is_ready()); assert(reff_native.poll()==nil); assert(reff_native.is_input_blocking())");
+            if (message(window, WM_KEYUP, VK_HOME, 0)) throw std::runtime_error("failed host leaked REFF-owned Home up");
+            check_script("assert(not reff_native.is_input_blocking())");
             if (!message(window, WM_KEYDOWN, 'A', 0) || !message(window, WM_LBUTTONDOWN, 0, 0))
                 throw std::runtime_error("failed host still captures input");
+            if (!message(window, WM_KEYUP, 'A', 0) || !message(window, WM_LBUTTONUP, 0, 0))
+                throw std::runtime_error("failed host swallowed game-owned release");
         }
         DestroyWindow(window);
         destroyed(state); lua_close(state);
