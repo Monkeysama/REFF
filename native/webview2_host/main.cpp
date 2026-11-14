@@ -316,7 +316,7 @@ private:
     }
     // 单项在途、仅保留最新待办：先交付当前真实重排帧，再追赶拖动中的最新尺寸，杜绝精确追逐导致饿死。
     void pump_viewport() {
-        if(game_session.empty() || !ready || !controller || viewport_in_flight || !pending_generation)return;
+        if(game_session.empty() || !visible || !ready || !controller || viewport_in_flight || !pending_generation)return;
         const auto generation=pending_generation;
         const int next_width=pending_width,next_height=pending_height;
         pending_generation=0;
@@ -419,12 +419,20 @@ private:
             return;
         }
         if(type=="visible") {
+            const bool was_visible=visible;
             visible=message.value("value",false);
             focused=visible;
-            if(!visible)suspend_input();
-            if(visible && viewport_in_flight)viewport_started=Clock::now();
+            if(!visible) {
+                suspend_input();
+                viewport_in_flight=false;
+            }
             // Hidden Visual 无需隐藏 HWND；禁用浏览器捕获会停止帧输出，恢复时仍应重新取得最新画面。
-            if(controller) controller->put_IsVisible(visible);
+            if(controller) winrt::check_hresult(controller->put_IsVisible(visible));
+            if(visible && !was_visible && ready) {
+                // 隐藏的 WebView 不保证绘制尺寸标记，直接确认最新视口，不等待旧代次。
+                pump_viewport();
+                if(!viewport_in_flight) stamp_viewport();
+            }
             if(!visible) active_input.clear();
             return;
         }
