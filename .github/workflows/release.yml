@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '正式版本标签，必须匹配 version.json，例如 v1.0.3'
+        description: '正式版本标签，必须匹配 version.json，例如 v1.0.4'
         required: true
         type: string
       publish:
@@ -113,6 +113,7 @@ jobs:
           .\tools\test-webview2-p1.ps1 -BuildRoot .\build-webview2-release -Preview
           .\tools\test-webview2-p1.ps1 -BuildRoot .\build-webview2-release -ProductionPreview
           .\tools\test-webview2-p1.ps1 -BuildRoot .\build-webview2-release -ProductionScale
+          .\tools\test-webview2-cold-start.ps1 -BuildRoot .\build-webview2-release
 
       - name: 生成并校验分发资产
         shell: pwsh
@@ -136,6 +137,8 @@ jobs:
             artifacts/webview2-p1/**/integration-summary.json
             artifacts/webview2-p1/**/smoke-summary.json
             artifacts/webview2-p4/**/summary.json
+            artifacts/webview2/cold-start-*/cold-start-summary.json
+            artifacts/webview2/cold-start-*/build.json
 
       - name: 发布正式版
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)

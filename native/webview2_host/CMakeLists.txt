@@ -39,6 +39,13 @@ target_sources(reff-wv2-integration PRIVATE ../plugin/settings.cpp ../plugin/ren
 target_link_libraries(reff-wv2-integration PRIVATE d3d12 dxgi d3dcompiler user32)
 target_include_directories(reff-wv2-integration PRIVATE "${REFF_ROOT}/native/plugin")
 
+# 冷启动回归只依赖正式 IPC/共享帧；不用 Lua、DX12 Renderer 或网页测试脚本。
+add_executable(reff-wv2-cold-start "${REFF_ROOT}/tests/webview2/cold_start.cpp" ../common/ipc.cpp ../common/frame.cpp)
+target_include_directories(reff-wv2-cold-start PRIVATE "${REFF_ROOT}/native/common" "${REFF_ROOT}/.deps/reframework/dependencies/nlohmann")
+target_compile_definitions(reff-wv2-cold-start PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_compile_options(reff-wv2-cold-start PRIVATE /utf-8 /EHsc /W4)
+target_link_libraries(reff-wv2-cold-start PRIVATE ole32 advapi32)
+
 # 正式资源路由下独立验证 DX12 像素、持续缩放、宿主故障及性能负载，不操作游戏。
 add_executable(reff-wv2-dx12 "${REFF_ROOT}/tests/webview2/smoke.cpp" ../plugin/renderer.cpp ../plugin/native_preview.cpp ../common/ipc.cpp ../common/frame.cpp)
 add_executable(reff-wv2-fault "${REFF_ROOT}/tests/webview2/fault.cpp" ../common/ipc.cpp ../common/frame.cpp)
