@@ -152,6 +152,20 @@ int main() {
         auto right_up = clicks.translate(WM_RBUTTONUP);
         require(right_down && right_down->button == 1 && right_down->click_count == 2, "right double click translated");
         require(right_up && right_up->mouse_up && right_up->click_count == 2, "right double click up paired");
+        // 中键使用 IPC button=2，且双击次数不得污染左右键；抬起后必须恢复普通点击。
+        auto middle_down = clicks.translate(WM_MBUTTONDOWN);
+        auto middle_up = clicks.translate(WM_MBUTTONUP);
+        require(middle_down && middle_down->button == 2 && !middle_down->mouse_up && middle_down->click_count == 1, "middle down translated");
+        require(middle_up && middle_up->button == 2 && middle_up->mouse_up && middle_up->click_count == 1, "middle up paired");
+        auto middle_double = clicks.translate(WM_MBUTTONDBLCLK);
+        clicks.translate(WM_LBUTTONDOWN);
+        clicks.translate(WM_RBUTTONDOWN);
+        auto middle_double_up = clicks.translate(WM_MBUTTONUP);
+        require(middle_double && middle_double->button == 2 && !middle_double->mouse_up && middle_double->click_count == 2, "middle double click translated");
+        require(middle_double_up && middle_double_up->mouse_up && middle_double_up->click_count == 2, "middle double up survives other buttons");
+        require(clicks.translate(WM_MBUTTONUP)->click_count == 1, "middle click count resets after release");
+        require(clicks.translate(WM_LBUTTONUP)->click_count == 1 && clicks.translate(WM_RBUTTONUP)->click_count == 1, "middle double click preserves other counts");
+        require(!clicks.translate(WM_XBUTTONDOWN) && !clicks.translate(WM_MOUSEHWHEEL), "side buttons and horizontal wheel remain unsupported");
         require(!clicks.translate(WM_MOUSEMOVE), "non-click ignored");
         require(reff::should_block_keyboard(true, false, false), "visible keyboard capture");
         require(!reff::should_block_keyboard(true, true, false), "keyboard passthrough");
@@ -160,6 +174,8 @@ int main() {
         require(reff::input_modifiers(false, true, false) == 4, "control modifier uses the浏览器control bit");
         require(reff::input_modifiers(false, false, false, false, false, true) == 128, "meta modifier uses the浏览器command bit");
         require(reff::input_modifiers(true, true, true, true, true) == 94, "combined input modifiers preserve every浏览器flag");
+        require(reff::input_modifiers(false, false, false, false, false, false, true) == 32, "middle button uses IPC bit five");
+        require(reff::input_modifiers(true, true, true, true, true, true, true) == 254, "middle button preserves keyboard and other button flags");
         // Core 设置必须拒绝未知字段、原子落盘，并按客户区比例恢复窗口几何。
         {
             const auto directory = std::filesystem::temp_directory_path() / (L"reff-settings-test-" + std::to_wstring(GetCurrentProcessId()));
