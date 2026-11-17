@@ -1286,7 +1286,7 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
         const int modifiers = input_modifiers(
             GetKeyState(VK_SHIFT) < 0, GetKeyState(VK_CONTROL) < 0, GetKeyState(VK_MENU) < 0,
             GetKeyState(VK_LBUTTON) < 0, GetKeyState(VK_RBUTTON) < 0,
-            GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN) < 0);
+            GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN) < 0, GetKeyState(VK_MBUTTON) < 0);
         if (message == WM_INPUT) {
             // WM_INPUT 的 lParam 是临时 HRAWINPUT，只能在本次窗口消息内读取；不跨线程保存。
             bool input_passthrough = runtime->mouse_passthrough.load();
@@ -1371,6 +1371,7 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
         }
         if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_LBUTTONDBLCLK ||
             message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_RBUTTONDBLCLK ||
+            message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_MBUTTONDBLCLK ||
             message == WM_MOUSEWHEEL) {
             // 点击与绘制使用同一输入源；自由模式刷新最新系统位置，回中心模式保留相对坐标。
             POINT physical{};
@@ -1413,9 +1414,8 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
                     (message == WM_CHAR || message == WM_SYSCHAR || message == WM_IME_CHAR) ? "char" : "down"}});
             return runtime->keyboard_passthrough.load() && !runtime->web_input_active.load();
         }
-        // 当前浏览器桥接不使用中键、侧键和水平滚轮；面板打开时仍须按鼠标穿透设置统一阻断或放行。
-        if (message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_MBUTTONDBLCLK ||
-            message == WM_XBUTTONDOWN || message == WM_XBUTTONUP || message == WM_XBUTTONDBLCLK || message == WM_MOUSEHWHEEL)
+        // 侧键和水平滚轮尚未接入浏览器；面板打开时仍按鼠标穿透设置统一阻断或放行。
+        if (message == WM_XBUTTONDOWN || message == WM_XBUTTONUP || message == WM_XBUTTONDBLCLK || message == WM_MOUSEHWHEEL)
             return runtime->mouse_passthrough.load();
     } catch (...) { set_visible(false); }
     return true;

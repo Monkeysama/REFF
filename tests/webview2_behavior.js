@@ -23,6 +23,43 @@
   const rect=field.getBoundingClientRect(),point={type:'mouse',x:Math.round(rect.left+30+pointerOffset.x),y:Math.round(rect.top+15+pointerOffset.y),button:0};
   await batch([{...point,action:'move'},{...point,action:'down'},{...point,action:'up'},{...point,action:'down',clickCount:2},{...point,action:'up'}]);
   await wait(()=>doubled,'native double click');
+  // IPC 中键=2，DOM 中键=1/buttons=4；阻止默认自动滚屏，仅观察真实宿主发送的输入。
+  const events=[],record=event=>{events.push({type:event.type,button:event.button,buttons:event.buttons,detail:event.detail});if(event.button===1&&(event.type==='mousedown'||event.type==='auxclick'))event.preventDefault();};
+  const types=['pointerdown','pointerup','pointermove','mousedown','mouseup','auxclick'];
+  types.forEach(type=>field.addEventListener(type,record));
+  const middle={...point,button:2},seen=(type,button,buttons)=>events.some(e=>e.type===type&&e.button===button&&e.buttons===buttons);
+  await batch([{...middle,action:'down',modifiers:32},{...middle,action:'move',x:middle.x+16,modifiers:32},{...middle,action:'up',x:middle.x+16}]);
+  await wait(()=>seen('mouseup',1,0),'middle release');
+  check(seen('pointerdown',1,4)&&seen('mousedown',1,4),'middle pointer/mouse down mapping');
+  check(events.some(e=>e.type==='pointermove'&&e.buttons===4)&&seen('pointerup',1,0),'middle drag / pointer up buttons');
+  events.length=0;
+  await batch([{...middle,action:'move'},{...middle,action:'down',modifiers:32},{...middle,action:'up'},
+   {...middle,action:'down',clickCount:2,modifiers:32},{...middle,action:'up',clickCount:2}]);
+  await wait(()=>events.filter(e=>e.type==='mouseup'&&e.button===1).length===2,'middle double release');
+  check(events.some(e=>e.type==='mousedown'&&e.button===1&&e.detail===2),'middle double press detail');
+  // 多键组合的 pointerdown 只在首键按下触发；用 mousedown/up 检查其他按钮不被覆盖。
+  events.length=0;
+  await batch([{...point,action:'down',modifiers:16},{...middle,action:'down',modifiers:48},
+   {...middle,action:'move',x:middle.x+18,modifiers:48},{...middle,action:'up',modifiers:16},{...point,action:'up'}]);
+  await wait(()=>seen('mouseup',0,0),'chord release');
+  check(seen('mousedown',1,5)&&seen('mouseup',1,1),'left-middle chord preserves buttons');
+  events.length=0;
+  await batch([{...point,button:1,action:'down',modifiers:64},{...middle,action:'down',modifiers:96},
+   {...middle,action:'up',modifiers:64},{...point,button:1,action:'up'}]);
+  await wait(()=>seen('mouseup',2,0),'right chord release');
+  check(seen('mousedown',1,6)&&seen('mouseup',1,2),'right-middle chord preserves buttons');
+  // 暂停必须补松中键且幂等；恢复后移动不得保留按住状态。主页面与隔离页都运行这些断言。
+  for(const type of ['focus','visible']){
+   events.length=0;await batch([{...middle,action:'down',modifiers:32}]);await wait(()=>seen('mousedown',1,4),type+' middle held');
+   await batch([{type,value:false},{type,value:false},{...middle,action:'down',modifiers:32}]);
+   await wait(()=>seen('mouseup',1,0),type+' releases middle');
+   check(events.filter(e=>e.type==='mousedown'&&e.button===1).length===1&&events.filter(e=>e.type==='mouseup'&&e.button===1).length===1,type+' duplicate release or inactive input');
+   await batch([{type,value:true}]);await pause(120);
+   events.length=0;await batch([{...middle,action:'move',x:middle.x+20}]);
+   await wait(()=>events.some(e=>e.type==='pointermove'),'resumed pointer move');
+   check(events.filter(e=>e.type==='pointermove').every(e=>e.buttons===0),type+' sticky middle after resume');
+  }
+  types.forEach(type=>field.removeEventListener(type,record));
   await batch([{type:'visible',value:false}]);await wait(()=>document.activeElement!==field,'hide blur');await batch([{type:'visible',value:true}]);await pause(100);
   removeEventListener('keydown',down);removeEventListener('keyup',up);field.remove();
  };
@@ -75,6 +112,6 @@
   iframe.contentWindow.postMessage({type:'p2-input',offset:{x:frameRect.left,y:frameRect.top}},'*');const child=await childInput;check(child.passed,child.error);
   document.querySelector('.el-menu-item').click();await wait(()=>!document.querySelector('iframe'),'iframe cleanup');await wait(()=>!document.querySelector('.settings-panel footer button')?.disabled,'navigation save completed');document.querySelector('.settings-panel footer button').click();
   await wait(()=>document.querySelector('kbd')?.textContent==='Home','restore defaults');const defaults=await call('reff.settings.get');check(defaults.hotkey.key===36&&defaults.hotkey.modifiers===0&&defaults.language==='zh-CN'&&defaults.startup.preload&&!defaults.input.keyboardPassthrough&&!defaults.window.geometry,'default reset');
-  await call('test.finished',{passed:true,settings:true,persistence:true,geometry:true,themeAndLanguage:true,modifierOnlyCaptureIgnored:true,hotkeys:['Ctrl+Shift+K','Ctrl+K','F24','Ctrl+;'],mainAndFrameInput:true,focusRelease:true,hiddenResume:true,hotReloadDocuments:reports,clipboardAndSystemImeValidated:false});
+  await call('test.finished',{passed:true,settings:true,persistence:true,geometry:true,themeAndLanguage:true,modifierOnlyCaptureIgnored:true,hotkeys:['Ctrl+Shift+K','Ctrl+K','F24','Ctrl+;'],mainAndFrameInput:true,middleButton:true,middleDrag:true,middleDoubleClick:true,middleButtonChords:true,middleFocusAndHideRelease:true,focusRelease:true,hiddenResume:true,hotReloadDocuments:reports,clipboardAndSystemImeValidated:false});
  }catch(error){await call('test.finished',{passed:false,error:String(error.stack||error),reports});}
 })().catch(error=>window.reffNativeCall('test.finished',{passed:false,error:String(error.stack||error)}));

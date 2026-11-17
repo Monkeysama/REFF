@@ -31,6 +31,13 @@ public:
             right_click_count_ = 1;
             return Event{1, true, count};
         }
+        case WM_MBUTTONDOWN: middle_click_count_ = 1; return Event{2, false, 1};
+        case WM_MBUTTONDBLCLK: middle_click_count_ = 2; return Event{2, false, 2};
+        case WM_MBUTTONUP: {
+            const int count = middle_click_count_;
+            middle_click_count_ = 1;
+            return Event{2, true, count};
+        }
         default: return std::nullopt;
         }
     }
@@ -38,6 +45,7 @@ public:
 private:
     int left_click_count_{1};
     int right_click_count_{1};
+    int middle_click_count_{1};
 };
 
 }
