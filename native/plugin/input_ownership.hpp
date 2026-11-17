@@ -16,7 +16,7 @@ class InputOwnership {
 public:
     enum class Lane : std::uint8_t { legacy, raw };
     enum class Kind : std::uint8_t { keyboard, mouse };
-    enum class Owner : std::uint8_t { game, reff };
+    enum class Owner : std::uint8_t { game, reff, shared };
     // Win32 RAWKEYBOARD 约定的溢出码；不引入仅 WDK 提供的 ntddkbd.h。
     static constexpr USHORT overrun_make_code = 0xff;
     struct Key {
@@ -36,31 +36,35 @@ public:
 
     // 只预览已有 owner 的硬约束；新 down 尚未提交，以便拖动/快捷键的实际返回值决定 owner。
     // 一个 RAWMOUSE 无法逐事件返回 bool：game owner 或 unknown release 优先整包放行。
-    std::optional<bool> forced_route(std::span<const Event> events) const {
-        bool reff = false;
+    std::optional<Owner> forced_route(std::span<const Event> events) const {
+        std::optional<Owner> owner;
         for (const auto& event : events) {
             const auto found = owners_.find(event.key);
             if (found == owners_.end()) {
                 if (event.up) {
                     // 同包 down+up 没有可恢复的时序，仍按未知 release 保守放行。
-                    return true;
+                    return Owner::game;
                 }
-            } else if (found->second == Owner::game) return true;
-            else reff = true;
+            } else if (found->second == Owner::game) return Owner::game;
+            else owner = found->second; // shared 仅用于已进入网页的单项 legacy 消息。
         }
-        if (reff) return false;
-        return std::nullopt;
+        return owner;
     }
 
     // 提交真实整包选择：新 down 采用最终 owner；repeat 不重写 owner，up 后撤销。
     // 混包冲突可能让已有 REFF 事件随包放行，这是 bool ABI 的限制，不伪称逐事件隔离。
-    bool route(std::span<const Event> events, bool default_game) {
-        const bool game = forced_route(events).value_or(default_game);
+    bool route(std::span<const Event> events, bool default_game, bool sent_to_web = false) {
+        const Owner owner = forced_route(events).value_or(
+            default_game ? (sent_to_web ? Owner::shared : Owner::game) : Owner::reff);
         for (const auto& event : events) {
             if (event.up) owners_.erase(event.key);
-            else owners_.try_emplace(event.key, game ? Owner::game : Owner::reff);
+            else owners_.try_emplace(event.key, owner);
         }
-        return game;
+        return owner != Owner::reff;
+    }
+    // 宿主在隐藏/失焦时自行补松；窗口线程保留游戏侧配对，直至物理按键释放。
+    void suspend_web_input() {
+        for (auto& [key, owner] : owners_) if (owner == Owner::shared) owner = Owner::game;
     }
     bool has_reff_owned() const {
         for (const auto& [key, owner] : owners_) if (owner == Owner::reff) return true;
@@ -69,20 +73,19 @@ public:
 
     // TranslateMessage 派生字符不另建 held 项；仅沿用仍按住的 legacy 扫描码/扩展位 owner。
     // 字符值不是 VKey，不能拿它配对；IME/零扫描码或 up 后迟到字符无可靠物理归属。
-    std::optional<bool> character_route(UINT message, LPARAM lparam) const {
+    std::optional<Owner> character_route(UINT message, LPARAM lparam) const {
         if (message != WM_CHAR && message != WM_SYSCHAR) return std::nullopt;
         const auto bits = static_cast<std::uintptr_t>(lparam);
         const auto scan = static_cast<std::uint16_t>((bits >> 16) & 0xff);
         const auto flags = static_cast<std::uint16_t>((bits >> 24) & 1);
         if (!scan) return std::nullopt;
-        bool reff = false;
+        std::optional<Owner> result;
         for (const auto& [key, owner] : owners_) {
             if (key.lane != Lane::legacy || key.kind != Kind::keyboard || key.scan != scan || key.flags != flags) continue;
-            if (owner == Owner::game) return true; // 扫描码歧义同样保守让游戏优先。
-            reff = true;
+            if (owner == Owner::game) return Owner::game; // 扫描码歧义同样保守让游戏优先。
+            if (!result || owner == Owner::shared) result = owner;
         }
-        if (reff) return false;
-        return std::nullopt;
+        return result;
     }
 
     // legacy 键盘保留扫描码与扩展位，区分左右修饰键及主键盘/小键盘；bit30 不是身份。

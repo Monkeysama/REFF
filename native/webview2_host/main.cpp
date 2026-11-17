@@ -481,6 +481,7 @@ private:
             auto kind=COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE;
             const int button=message.value("button",0);
             if((action=="down"||action=="up")&&(button<0||button>=3))return;
+            if(action=="up" && !(pressed_buttons&(1<<button)))return;
             if(action=="wheel")kind=COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL;
             else if(action=="down")kind=mouse_down_kinds[button];
             else if(action=="up")kind=mouse_up_kinds[button];

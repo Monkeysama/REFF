@@ -119,6 +119,8 @@ struct Runtime {
     MouseClickTracker mouse_click_tracker;
     // ownership 只归窗口线程；关闭/断线/失焦均不清空，必须等各 lane 的真实 up。
     InputOwnership input_ownership;
+    // 显隐/失焦可来自其他线程；宿主补松后由窗口线程在下一条消息撤销网页的穿透配对。
+    std::atomic_bool web_input_released{};
     // Lua/IPC 不触碰 ownership 容器，只读取窗口线程发布的 held 摘要。
     std::atomic_bool reff_input_pending{};
     UINT cursor_sync_message{};
@@ -556,7 +558,10 @@ void set_visible(bool visible) {
 #if REFF_ENABLE_IME_PROXY
     if (!visible) runtime->ime.deactivate();
 #endif
-    if (!visible) runtime->web_input_active = false;
+    if (!visible) {
+        runtime->web_input_active = false;
+        runtime->web_input_released = true;
+    }
     refresh_keyboard_capture();
     if (visible) runtime->start_requested = true;
     if (runtime->connected) {
@@ -572,6 +577,7 @@ void set_visible(bool visible) {
 // 游戏失焦时只释放输入与系统光标；DX12 面板继续合成，避免 Alt-Tab 后从游戏窗口消失。
 void suspend_for_focus() {
     if (!runtime->visible || runtime->focus_suspended.exchange(true)) return;
+    runtime->web_input_released = true;
     ime_log("suspend_for_focus");
     end_panel_drag();
     runtime->cursor_blocked = false;
@@ -1244,7 +1250,7 @@ void on_reset() {
 // 窗口线程的网页/面板副作用层；调用者已处理 owner 硬约束并持有 pointer_mutex。
 // 返回值只是新 down 的默认归属，最终整包路由仍由外层状态机提交。
 bool dispatch_ui_message(HWND game_window, unsigned int message, unsigned long long wparam, long long lparam,
-                         const RAWINPUT* raw_input) {
+                         const RAWINPUT* raw_input, bool& sent_to_web) {
     if (runtime->cursor_sync_message && message == runtime->cursor_sync_message) {
         runtime->cursor_sync_pending = false;
         restore_after_focus(game_window);
@@ -1405,9 +1411,13 @@ bool dispatch_ui_message(HWND game_window, unsigned int message, unsigned long l
                 (begin_panel_resize(x, y) || begin_panel_drag(x, y))) return false;
             if (click && click->button == 0 && click->mouse_up && runtime->panel_dragging) { end_panel_drag(); return false; }
             int panel_x{}, panel_y{};
-            if (!map_virtual_cursor_to_panel(x, y, panel_x, panel_y)) return runtime->mouse_passthrough.load();
+            if (!map_virtual_cursor_to_panel(x, y, panel_x, panel_y)) {
+                if (!click || !click->mouse_up) return runtime->mouse_passthrough.load();
+                // 指针拖出面板仍须结束已开始的网页拖动，面板外坐标避免点中边缘控件。
+                panel_x = panel_y = -1;
+            }
             const std::string action = message == WM_MOUSEWHEEL ? "wheel" : click->mouse_up ? "up" : "down";
-            runtime->channel.send({{"type", "mouse"}, {"action", action}, {"x", panel_x}, {"y", panel_y},
+            sent_to_web = runtime->channel.send({{"type", "mouse"}, {"action", action}, {"x", panel_x}, {"y", panel_y},
                 {"button", click ? click->button : 0}, {"clickCount", click ? click->click_count : 1},
                 {"delta", GET_WHEEL_DELTA_WPARAM(wparam)}, {"modifiers", modifiers}});
             return runtime->mouse_passthrough.load();
@@ -1431,7 +1441,7 @@ bool dispatch_ui_message(HWND game_window, unsigned int message, unsigned long l
 #endif
         if (message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP ||
             message == WM_CHAR || message == WM_SYSCHAR || message == WM_IME_CHAR) {
-            runtime->channel.send({{"type", "key"}, {"key", int(wparam)}, {"native", int(lparam)}, {"modifiers", modifiers},
+            sent_to_web = runtime->channel.send({{"type", "key"}, {"key", int(wparam)}, {"native", int(lparam)}, {"modifiers", modifiers},
                 {"action", (message == WM_KEYUP || message == WM_SYSKEYUP) ? "up" :
                     (message == WM_CHAR || message == WM_SYSCHAR || message == WM_IME_CHAR) ? "char" : "down"}});
             return runtime->keyboard_passthrough.load() && !runtime->web_input_active.load();
@@ -1469,9 +1479,12 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
         // 未识别/读失败的包没有可验证的配对关系，保守交回游戏。
         if (!raw_input) return true;
     }
+    if (runtime->web_input_released.exchange(false)) runtime->input_ownership.suspend_web_input();
     const auto character_owner = runtime->input_ownership.character_route(message, static_cast<LPARAM>(lparam));
+    bool sent_to_web = false;
     auto route = [&](bool default_game) {
-        const bool game = character_owner.has_value() ? *character_owner : runtime->input_ownership.route(packet.view(), default_game);
+        const bool game = character_owner ? *character_owner != InputOwnership::Owner::reff
+            : runtime->input_ownership.route(packet.view(), default_game, sent_to_web);
         runtime->reff_input_pending.store(runtime->input_ownership.has_reff_owned(), std::memory_order_release);
         return game;
     };
@@ -1485,16 +1498,16 @@ bool on_message(void* window, unsigned int message, unsigned long long wparam, l
     std::lock_guard pointer_lock(runtime->pointer_mutex);
     synchronize_virtual_cursor_bounds(game_window);
     const auto forced = character_owner.has_value() ? character_owner : runtime->input_ownership.forced_route(packet.view());
-    // game-owned repeat/up（含可配对的派生字符）和 unknown-up 不进入网页，也不能触发 Escape/热键副作用。
+    // 仅游戏收到的按下和 unknown-up 绕过网页；穿透时两端都收到的按下也向两端配对。
     // 混包内新 down 也必须按实际放行记录 game，不能事后误记为 REFF。
-    if (forced.value_or(false)) return route(true);
+    if (forced == InputOwnership::Owner::game) return route(true);
     // 新 down 的副作用可能先关闭面板；在执行前保守发布候选，避免 Lua 观察到 visible=false
     // 到 held 提交之间的空窗。route 会立即按真实整包选择刷新摘要。
     for (const auto& event : packet.view()) if (!event.up) {
         runtime->reff_input_pending.store(true, std::memory_order_release);
         break;
     }
-    const bool default_game = dispatch_ui_message(game_window, message, wparam, lparam, raw_input);
+    const bool default_game = dispatch_ui_message(game_window, message, wparam, lparam, raw_input, sent_to_web);
     return route(default_game);
 }
 }
