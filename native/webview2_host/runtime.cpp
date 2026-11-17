@@ -11,6 +11,14 @@ namespace {
 // 每个文档的桥只传 method/params；票据保存在闭包，由原生 NavigationCompleted 分配。
 // JS 消息不能选择插件、会话或响应目标；卸载和超时会失败 Promise，不重放写操作。
 constexpr wchar_t bridge[]=LR"JS((()=>{
+ // 文档创建时捕获原生 HTML 拖拽，覆盖 Shell 和后续隔离页；不取消 pointer/mouse 事件或输入选区。
+ addEventListener('dragstart',event=>event.preventDefault(),{capture:true,passive:false});
+ // 非编辑控件只有显式 opt-in 才禁止选区；自定义元素可能含封闭 shadow 输入框，保守保留其默认行为。
+ addEventListener('selectstart',event=>{
+  const path=event.composedPath();
+  if(path.some(node=>node instanceof HTMLElement&&(node.matches('input,textarea')||node.isContentEditable||node.localName.includes('-'))))return;
+  if(path.some(node=>node instanceof HTMLElement&&node.hasAttribute('data-reff-no-select')))event.preventDefault();
+ },{capture:true,passive:false});
  let ticket='',sequence=0,closed=false;const pending=new Map;
  const fail=(code,message)=>Object.assign(new Error(message),{code});
  const transmit=(id,p)=>chrome.webview.postMessage({kind:'request',ticket,id,request:{method:p.method,params:p.params}});
@@ -31,6 +39,20 @@ constexpr wchar_t bridge[]=LR"JS((()=>{
  }),writable:false,configurable:false});
  addEventListener('pagehide',()=>{closed=true;for(const p of pending.values()){
   clearTimeout(p.timer);p.reject(fail('PAGE_UNLOADED','页面已卸载'));}pending.clear();},{once:true});
+})())JS";
+// 开发模式在每份文档中观察动态 select，不跨源访问父/子 DOM，不记录选项或输入内容；导航销毁即释放观察器。
+constexpr wchar_t select_warning[]=LR"JS((()=>{
+ const warned=new WeakSet;
+ const warn=element=>{
+  if(!(element instanceof HTMLSelectElement)||warned.has(element))return;
+  warned.add(element);console.warn('[REFF] Native <select> popup is not supported in the offscreen capture. Use public Element Plus ElSelect/ElOption via @reff/ui.');
+ };
+ const scan=root=>{if(root instanceof Element)warn(root);root.querySelectorAll?.('select').forEach(warn);};
+ const observer=new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)scan(node);});
+ observer.observe(document,{subtree:true,childList:true});
+ addEventListener('DOMContentLoaded',()=>scan(document),{once:true});
+ addEventListener('focusin',event=>event.composedPath().forEach(warn),true);
+ addEventListener('pagehide',()=>observer.disconnect(),{once:true});
 })())JS";
 std::string take(LPWSTR text){std::wstring copy=text?text:L"";CoTaskMemFree(text);return narrow(copy);}
 std::string mime(const std::filesystem::path& path){
@@ -86,6 +108,7 @@ void WebViewRuntime::attach(ICoreWebView2* web,ICoreWebView2Environment* environ
     EventRegistrationToken token{};
     // 测试脚本只在显式独立自检中注入受控文档，不改写内嵌产物或插件公共接口。
     auto script=std::wstring(bridge);
+    if(dev_enabled)script+=L";"+std::wstring(select_warning);
     if(self_test&&!test_script.empty())script+=L";addEventListener('DOMContentLoaded',()=>{"+widen(test_script)+L"},{once:true});";
     winrt::check_hresult(web_->AddScriptToExecuteOnDocumentCreated(script.c_str(),
         Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>([this](HRESULT result,LPCWSTR)->HRESULT{
