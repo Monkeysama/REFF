@@ -76,13 +76,22 @@ int main(int argc, char** argv) {
         SharedFrame frame; frame.open(make_session(),true);
         std::vector<unsigned char> transparent(panel_width*panel_height*4);
         if (!frame.write(transparent.data(),panel_width,panel_height)) throw std::runtime_error("Frame write failed");
-        for (int mode=0; mode<3; ++mode) {
+        for (int mode=0; mode<4; ++mode) {
             check(allocator->Reset()); check(list->Reset(allocator.Get(),nullptr));
             transition(list.Get(),target.Get(),D3D12_RESOURCE_STATE_PRESENT,D3D12_RESOURCE_STATE_RENDER_TARGET);
             const float clear[]{0,0,0,0}; list->ClearRenderTargetView(rtv->GetCPUDescriptorHandleForHeapStart(),clear,0,nullptr);
             transition(list.Get(),target.Get(),D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_PRESENT); submit();
             const int scale = mode==1 ? 2 : 1;
-            if (!renderer.draw(frame,{40,50},mode!=2,{width/scale,height/scale})) throw std::runtime_error(renderer.last_error());
+            // 模拟客户区与交换链不同分辨率，网页在裁剪过的面板内留下上下边带。
+            if (mode==3) {
+                for (int y=108; y<116; ++y) for (int x=116; x<124; ++x) {
+                    auto* pixel=&transparent[(y*panel_width+x)*4];
+                    pixel[1]=pixel[3]=255;
+                }
+                if (!frame.write(transparent.data(),panel_width,panel_height)) throw std::runtime_error("Hit-test frame write failed");
+                if (!renderer.draw(frame,{84,112},false,{640,480},{24,16},{24,16,504,416}))
+                    throw std::runtime_error(renderer.last_error());
+            } else if (!renderer.draw(frame,{40,50},mode!=2,{width/scale,height/scale})) throw std::runtime_error(renderer.last_error());
             check(allocator->Reset()); check(list->Reset(allocator.Get(),nullptr));
             transition(list.Get(),target.Get(),D3D12_RESOURCE_STATE_PRESENT,D3D12_RESOURCE_STATE_COPY_SOURCE);
             D3D12_TEXTURE_COPY_LOCATION src{}; src.pResource=target.Get(); src.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -91,6 +100,16 @@ int main(int argc, char** argv) {
             transition(list.Get(),target.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_PRESENT); submit();
             void* data{}; D3D12_RANGE range{0,SIZE_T(bytes)}; check(readback->Map(0,&range,&data));
             std::vector<unsigned char> pixels(static_cast<unsigned char*>(data),static_cast<unsigned char*>(data)+bytes); readback->Unmap(0,nullptr);
+            if (mode==3) {
+                const auto* pixel=&pixels[layout.Offset+224*layout.Footprint.RowPitch+168*4];
+                int x{}, y{};
+                const auto& panel=renderer.displayed_panel();
+                if (pixel[1]!=255 || !panel.hit_test(84,112,x,y) || x!=120 || y!=112)
+                    throw std::runtime_error("Hit test must match the browser pixel drawn under the cursor");
+                if (panel.hit_test(84,55,x,y) || panel.hit_test(84,376,x,y))
+                    throw std::runtime_error("Letterbox margins must not hit the browser");
+                continue;
+            }
             int count=0, dark=0, bright=0, minx=width, miny=height, maxy=-1;
             for (int y=0;y<height;++y) for (int x=0;x<width;++x) {
                 const auto* p=&pixels[layout.Offset+y*layout.Footprint.RowPitch+x*4];

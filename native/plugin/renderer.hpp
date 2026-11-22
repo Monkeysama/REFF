@@ -9,6 +9,14 @@
 namespace reff {
 template<class T> using Com = Microsoft::WRL::ComPtr<T>;
 
+// 一帧实际绘制的网页范围，用客户区坐标表示。尺寸与范围一起发布给窗口线程做命中测试。
+struct DisplayedPanel {
+    float left{}, top{}, right{}, bottom{};
+    int width{}, height{};
+    bool operator==(const DisplayedPanel&) const = default;
+    bool hit_test(int x, int y, int& web_x, int& web_y) const;
+};
+
 // 游戏 Present 线程独占的 DX12 合成器；通过 fence 判断可重用资源，不逐帧等待 GPU。
 class Renderer {
 public:
@@ -30,7 +38,7 @@ public:
     // 仅由持有 renderer_mutex 的 Present 调用者读取并清零统计窗口。
     Stats take_stats() { auto result = stats_; stats_ = {}; return result; }
     // 只在 Present 线程调用：宿主换代后保留 GPU 资源，但不显示旧会话内容。
-    void invalidate_frame() { sequence_ = 0; uploaded_ = false; }
+    void invalidate_frame() { sequence_ = 0; uploaded_ = false; displayed_panel_ = {}; }
     RECT panel_rect() const;
     // Present 线程转换面板矩形，供窗口线程的浏览器命中与 IME 候选位置共享客户区坐标。
     RECT panel_client_rect(std::pair<int, int> client_size, std::pair<int, int> origin = {-1, -1}) const;
@@ -38,6 +46,7 @@ public:
     // 仅由持有 renderer_mutex 的 Present 调用者读取；失败后保留诊断直到下次渲染尝试。
     const std::string& last_error() const { return last_error_; }
     std::uint64_t displayed_frame_generation() const { return frame_viewport_generation_; }
+    const DisplayedPanel& displayed_panel() const { return displayed_panel_; }
 private:
     struct Slot {
         Com<ID3D12Resource> target;
@@ -73,6 +82,7 @@ private:
     bool uploaded_{};
     UINT frame_width_{panel_width}, frame_height_{panel_height};
     std::uint64_t frame_viewport_generation_{1};
+    DisplayedPanel displayed_panel_;
     float displayed_content_aspect_{float(panel_width) / panel_height};
     float target_content_aspect_{float(panel_width) / panel_height};
     bool cursor_uploaded_{};

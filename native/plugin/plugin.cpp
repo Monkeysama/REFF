@@ -103,6 +103,8 @@ struct Runtime {
     std::atomic_bool panel_dragging{};
     // 面板几何的写入来自窗口线程，读取来自 Present 线程；用同一把锁提交完整矩形，避免单轴调整读到中间状态。
     std::mutex panel_geometry_mutex;
+    DisplayedPanel displayed_panel;
+    std::atomic_bool pointer_remap_requested{};
     // IPC 写入、窗口线程读取；和面板几何共用锁，避免折叠时命中旧的固定标题高度。
     WindowRegions window_regions;
     // W2 尺寸调整状态；输入线程写入请求，Present 线程负责裁剪并提交显示矩形。
@@ -391,33 +393,27 @@ void synchronize_virtual_cursor_position(HWND window) {
     runtime->pending_virtual_cursor_dispatch = true;
 }
 
-// 把游戏客户区位置换算为固定浏览器逻辑坐标。面板外移动不交给网页命中测试，但仍绘制原生虚拟光标。
-bool map_virtual_cursor_to_panel(int x, int y, int& panel_x, int& panel_y) {
-    const int left = runtime->left.load();
-    const int top = runtime->top.load();
-    const int right = runtime->right.load();
-    const int bottom = runtime->bottom.load();
-    if (right <= left || bottom <= top || x < left || x >= right || y < top || y >= bottom) return false;
-    const auto viewport = runtime->viewport.snapshot();
-    const int content_width = std::max(1, viewport.width), content_height = std::max(1, viewport.height);
-    panel_x = std::clamp((x - left) * content_width / (right - left), 0, content_width - 1);
-    panel_y = std::clamp((y - top) * content_height / (bottom - top), 0, content_height - 1);
-    return true;
+// 窗口线程复制 Present 发布的完整绘制范围和源尺寸，避免用已请求但尚未绘制的视口换算。
+DisplayedPanel displayed_panel_snapshot() {
+    std::lock_guard lock(runtime->panel_geometry_mutex);
+    return runtime->displayed_panel;
 }
 
 // 仅在进入、离开或面板内移动时发送浏览器鼠标事件。浏览器 不再绘制指针，原生渲染器负责全客户区视觉光标。
-void dispatch_virtual_cursor_move(int modifiers) {
+void dispatch_virtual_cursor_move(int modifiers, bool remap = false) {
     if (!runtime->visible || runtime->focus_suspended || !runtime->connected || !runtime->channel.connected()) return;
     const auto [x, y] = runtime->cursor_input.cursor.position();
     int panel_x{}, panel_y{};
-    const bool inside = map_virtual_cursor_to_panel(x, y, panel_x, panel_y);
+    const auto panel = displayed_panel_snapshot();
+    const bool inside = panel.hit_test(x, y, panel_x, panel_y);
     if (inside) {
         const bool entered = !runtime->pointer_in_panel;
         const auto now = GetTickCount64();
         //浏览器页面每次移动都可能触发整页 OnPaint；8ms 节流保留交互响应，同时避免高频 Raw Input 造成提交拥塞。
         const bool due = now - runtime->last_browser_move_tick >= 8;
-        if (entered || (due && (panel_x != runtime->last_panel_x || panel_y != runtime->last_panel_y))) {
-            runtime->channel.send({{"type", "mouse"}, {"action", "move"}, {"x", panel_x}, {"y", panel_y}, {"button", 0}, {"delta", 0}, {"modifiers", modifiers}});
+        if (entered || remap || (due && (panel_x != runtime->last_panel_x || panel_y != runtime->last_panel_y))) {
+            runtime->channel.send({{"type", "mouse"}, {"action", "move"}, {"x", panel_x}, {"y", panel_y}, {"button", 0}, {"delta", 0},
+                {"modifiers", modifiers}, {"viewportWidth", panel.width}, {"viewportHeight", panel.height}});
             runtime->last_panel_x = panel_x; runtime->last_panel_y = panel_y;
             runtime->last_browser_move_tick = now;
         }
@@ -434,10 +430,13 @@ void dispatch_virtual_cursor_move(int modifiers) {
 bool begin_panel_drag(int x, int y) {
     std::lock_guard geometry_lock(runtime->panel_geometry_mutex);
     const int left = runtime->left.load(), top = runtime->top.load();
-    const int right = runtime->right.load(), bottom = runtime->bottom.load();
-    if (!runtime->window_regions.contains(x-left,y-top,right-left,bottom-top)) return false;
+    const auto& panel = runtime->displayed_panel;
+    const auto& regions = runtime->window_regions;
+    int web_x{}, web_y{};
+    if (regions.width != panel.width || regions.height != panel.height ||
+        !panel.hit_test(x, y, web_x, web_y) || !regions.contains(web_x, web_y, panel.width, panel.height)) return false;
     runtime->panel_dragging = true;
-    // 命中测试已使用当前已绘制矩形；从此刻起位置由拖动状态拥有，避免首帧初始化覆盖拖动坐标。
+    // 从此刻起面板位置由拖动状态拥有，避免首帧初始化覆盖拖动坐标。
     runtime->panel_position_initialized.store(true, std::memory_order_release);
     runtime->panel_drag_anchor_x = x; runtime->panel_drag_anchor_y = y;
     runtime->panel_drag_start_left = left; runtime->panel_drag_start_top = top;
@@ -1203,6 +1202,15 @@ void on_present() {
                                                    runtime->viewport.snapshot().generation,
                                                    runtime->panel_resize_edges.load(std::memory_order_acquire) != 0,
                                                    runtime->ready.load() ? &native_previews() : nullptr, runtime->preview_revision.load());
+        if (drawn) {
+            std::lock_guard geometry_lock(runtime->panel_geometry_mutex);
+            const auto& panel = runtime->renderer.displayed_panel();
+            if (panel != runtime->displayed_panel) {
+                runtime->displayed_panel = panel;
+                runtime->pointer_remap_requested = true;
+                request_cursor_sync();
+            }
+        }
 #if REFF_ENABLE_PERF_DIAGNOSTICS
         const auto draw_cpu_us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - draw_started).count();
         ++runtime->perf_draw_attempts;
@@ -1245,6 +1253,8 @@ void on_reset() {
     compatibility_log("renderer reset");
     runtime->compatibility_renderer_logged = false;
     set_visible(false); std::lock_guard lock(runtime->renderer_mutex); runtime->renderer.reset(); runtime->rendered_frame.reset();
+    std::lock_guard geometry_lock(runtime->panel_geometry_mutex);
+    runtime->displayed_panel = {};
 }
 
 // 窗口线程的网页/面板副作用层；调用者已处理 owner 硬约束并持有 pointer_mutex。
@@ -1256,7 +1266,7 @@ bool dispatch_ui_message(HWND game_window, unsigned int message, unsigned long l
         restore_after_focus(game_window);
         if (runtime->viewport_reset_requested.exchange(false)) commit_viewport_resize(true);
         sync_cursor(game_window);
-        dispatch_virtual_cursor_move(0);
+        if (!runtime->panel_resize_edges) dispatch_virtual_cursor_move(0, runtime->pointer_remap_requested.exchange(false));
         return false;
     }
     if (is_configured_hotkey(message, wparam, lparam) && !runtime->hotkey_capture.load(std::memory_order_acquire)) {
@@ -1411,7 +1421,8 @@ bool dispatch_ui_message(HWND game_window, unsigned int message, unsigned long l
                 (begin_panel_resize(x, y) || begin_panel_drag(x, y))) return false;
             if (click && click->button == 0 && click->mouse_up && runtime->panel_dragging) { end_panel_drag(); return false; }
             int panel_x{}, panel_y{};
-            if (!map_virtual_cursor_to_panel(x, y, panel_x, panel_y)) {
+            const auto panel = displayed_panel_snapshot();
+            if (!panel.hit_test(x, y, panel_x, panel_y)) {
                 if (!click || !click->mouse_up) return runtime->mouse_passthrough.load();
                 // 指针拖出面板仍须结束已开始的网页拖动，面板外坐标避免点中边缘控件。
                 panel_x = panel_y = -1;
@@ -1419,7 +1430,8 @@ bool dispatch_ui_message(HWND game_window, unsigned int message, unsigned long l
             const std::string action = message == WM_MOUSEWHEEL ? "wheel" : click->mouse_up ? "up" : "down";
             sent_to_web = runtime->channel.send({{"type", "mouse"}, {"action", action}, {"x", panel_x}, {"y", panel_y},
                 {"button", click ? click->button : 0}, {"clickCount", click ? click->click_count : 1},
-                {"delta", GET_WHEEL_DELTA_WPARAM(wparam)}, {"modifiers", modifiers}});
+                {"delta", GET_WHEEL_DELTA_WPARAM(wparam)}, {"modifiers", modifiers},
+                {"viewportWidth", panel.width}, {"viewportHeight", panel.height}});
             return runtime->mouse_passthrough.load();
         }
 #if !REFF_ENABLE_IME_PROXY

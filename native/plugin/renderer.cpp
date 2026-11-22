@@ -6,6 +6,14 @@
 #include <windows.h>
 
 namespace reff {
+// 用最终绘制矩形反算 WebView2 像素，剔除等比缩放留下的边带。
+bool DisplayedPanel::hit_test(int x, int y, int& web_x, int& web_y) const {
+    if (x < left || x >= right || y < top || y >= bottom) return false;
+    web_x = std::min(int((x - left) * width / (right - left)), width - 1);
+    web_y = std::min(int((y - top) * height / (bottom - top)), height - 1);
+    return true;
+}
+
 // 把 HRESULT 转成异常，仅在外层 Present 边界捕获，避免半初始化对象继续绘制。
 static void check(HRESULT result, std::source_location location = std::source_location::current()) {
     if (FAILED(result)) throw std::runtime_error("DX12 HRESULT=" + std::to_string(result) +
@@ -307,6 +315,10 @@ bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, boo
         check(list_->Close()); ID3D12CommandList* lists[]{list_.Get()}; queue_->ExecuteCommandLists(1, lists);
         // 已提交的预览资源即使 Signal 失败也不能按旧 fence 提前释放；后续成功信号或设备移除才可回收。
         command_frame->fence = ++fence_value_;check(queue_->Signal(fence_.Get(), fence_value_));
+        // 从最终交换链矩形反算客户区边界，保留 DX12 viewport 取整后的实际绘制位置。
+        const float client_scale_x = float(client_size.first) / width_, client_scale_y = float(client_size.second) / height_;
+        displayed_panel_ = {rect.left * client_scale_x, rect.top * client_scale_y,
+                            rect.right * client_scale_x, rect.bottom * client_scale_y, int(frame_width_), int(frame_height_)};
         ++stats_.draw_calls;
         return true;
     } catch (const std::exception& error) { last_error_ = error.what(); return false; }
@@ -331,7 +343,7 @@ void Renderer::reset() {
     slots_.clear(); texture_.Reset(); pipeline_.Reset(); root_.Reset(); list_.Reset(); fence_.Reset(); wait_event_.reset();
     command_frames_.clear(); command_frame_index_ = 0;
     rtv_.Reset(); srv_.Reset(); swapchain_.Reset(); queue_.Reset(); device_.Reset();
-    sequence_ = 0; fence_value_ = 0; uploaded_ = false; frame_viewport_generation_ = 1;
+    invalidate_frame(); fence_value_ = 0; frame_viewport_generation_ = 1;
     displayed_content_aspect_ = target_content_aspect_ = float(panel_width) / panel_height; stats_ = {}; window_ = nullptr;
 }
 }

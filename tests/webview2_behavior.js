@@ -79,6 +79,14 @@
   const events=[],record=event=>{events.push({type:event.type,button:event.button,buttons:event.buttons,detail:event.detail});if(event.button===1&&(event.type==='mousedown'||event.type==='auxclick'))event.preventDefault();};
   const types=['pointerdown','pointerup','pointermove','mousedown','mouseup','auxclick'];
   types.forEach(type=>field.addEventListener(type,record));
+  if(window===parent){
+   const current={...point,viewportWidth:innerWidth,viewportHeight:innerHeight};
+   const stale={...current,button:2,viewportHeight:innerHeight-1};
+   await batch([{...stale,action:'down'},{...stale,action:'up'},{...current,action:'down'},{...current,action:'up'}]);
+   await wait(()=>events.some(e=>e.type==='mouseup'&&e.button===0),'current viewport click');
+   check(events.filter(e=>e.type==='mousedown').length===1,'obsolete viewport click must be discarded');
+   events.length=0;
+  }
   const middle={...point,button:2},seen=(type,button,buttons)=>events.some(e=>e.type===type&&e.button===button&&e.buttons===buttons);
   await batch([{...middle,action:'down',modifiers:32},{...middle,action:'move',x:middle.x+16,modifiers:32},{...middle,action:'up',x:middle.x+16}]);
   await wait(()=>seen('mouseup',1,0),'middle release');

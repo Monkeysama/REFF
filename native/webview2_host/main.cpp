@@ -486,6 +486,9 @@ private:
             else if(action=="down")kind=mouse_down_kinds[button];
             else if(action=="up")kind=mouse_up_kinds[button];
             else if(message.value("leave",false))kind=COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE;
+            // 优先队列可能先应用新视口。忽略旧画面的命中，已按下的按钮仍在网页外释放。
+            const bool stale_viewport=message.value("viewportWidth",width)!=width||message.value("viewportHeight",height)!=height;
+            if(stale_viewport && action!="up" && kind!=COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE)return;
             const int flags=message.value("modifiers",0);
             UINT keys{};if(flags&2)keys|=MK_SHIFT;if(flags&4)keys|=MK_CONTROL;if(flags&16)keys|=MK_LBUTTON;if(flags&32)keys|=MK_MBUTTON;if(flags&64)keys|=MK_RBUTTON;
             if(kind==COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE)keys=0;
@@ -493,7 +496,7 @@ private:
                 pressed_buttons|=1<<button;keys|=mouse_virtual_keys[button];
                 if(message.value("clickCount",1)==2)kind=mouse_double_kinds[button];
             }else if(action=="up"){pressed_buttons&=~(1<<button);keys&=~mouse_virtual_keys[button];}
-            POINT point{message.value("x",0),message.value("y",0)};last_pointer=point;
+            POINT point=stale_viewport?POINT{-1,-1}:POINT{message.value("x",0),message.value("y",0)};last_pointer=point;
             if(kind==COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE)point={0,0};
             winrt::check_hresult(composition->SendMouseInput(kind,static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(keys),
                 action=="wheel"?UINT(message.value("delta",0)):0,point));
