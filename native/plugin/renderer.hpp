@@ -47,6 +47,8 @@ public:
     const std::string& last_error() const { return last_error_; }
     std::uint64_t displayed_frame_generation() const { return frame_viewport_generation_; }
     const DisplayedPanel& displayed_panel() const { return displayed_panel_; }
+    // Present 线程同时提交面板外框和网页绘制范围，拖动锚点使用已定位的外框。
+    RECT positioned_panel_rect() const { return positioned_panel_rect_; }
 private:
     struct Slot {
         Com<ID3D12Resource> target;
@@ -83,6 +85,7 @@ private:
     UINT frame_width_{panel_width}, frame_height_{panel_height};
     std::uint64_t frame_viewport_generation_{1};
     DisplayedPanel displayed_panel_;
+    RECT positioned_panel_rect_{};
     float displayed_content_aspect_{float(panel_width) / panel_height};
     float target_content_aspect_{float(panel_width) / panel_height};
     bool cursor_uploaded_{};

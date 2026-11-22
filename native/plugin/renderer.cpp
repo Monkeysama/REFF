@@ -236,9 +236,9 @@ bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, boo
         barrier(list_.Get(), slot.target.Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
         auto target = rtv_->GetCPUDescriptorHandleForHeapStart(); target.ptr += index * rtv_step_;
         list_->OMSetRenderTargets(1, &target, FALSE, nullptr);
-        auto panel_client = (display_rect.right > display_rect.left && display_rect.bottom > display_rect.top) ? display_rect : panel_client_rect(client_size, panel_origin);
+        const auto panel_outer = (display_rect.right > display_rect.left && display_rect.bottom > display_rect.top) ? display_rect : panel_client_rect(client_size, panel_origin);
         // 缩放期间对新旧浏览器帧的源宽高比做渐进过渡；面板矩形每帧立即跟随，避免 100ms 重排节拍造成跳动。
-        const LONG target_width = panel_client.right - panel_client.left, target_height = panel_client.bottom - panel_client.top;
+        const LONG target_width = panel_outer.right - panel_outer.left, target_height = panel_outer.bottom - panel_outer.top;
         if (!panel_resizing) displayed_content_aspect_ = target_content_aspect_;
         else displayed_content_aspect_ += (target_content_aspect_ - displayed_content_aspect_) * 0.22f;
         const float panel_aspect = float(target_width) / std::max<LONG>(1, target_height);
@@ -248,8 +248,11 @@ bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, boo
         } else {
             fitted_width = target_width; fitted_height = std::max<LONG>(1, LONG(target_width / std::max(0.01f, displayed_content_aspect_)));
         }
-        panel_client.left += (target_width - fitted_width) / 2; panel_client.top += (target_height - fitted_height) / 2;
-        panel_client.right = panel_client.left + fitted_width; panel_client.bottom = panel_client.top + fitted_height;
+        // 等比拟合留下的边带可以越过客户区；只限制实际画面，保留外框占满某一轴时的可用行程。
+        const LONG inset_x = (target_width - fitted_width) / 2, inset_y = (target_height - fitted_height) / 2;
+        const LONG left = std::clamp<LONG>(panel_outer.left + inset_x, 0, std::max<LONG>(0, client_size.first - fitted_width));
+        const LONG top = std::clamp<LONG>(panel_outer.top + inset_y, 0, std::max<LONG>(0, client_size.second - fitted_height));
+        const RECT panel_client{left, top, left + fitted_width, top + fitted_height};
         RECT rect{MulDiv(panel_client.left, width_, std::max(1, client_size.first)),
                   MulDiv(panel_client.top, height_, std::max(1, client_size.second)),
                   MulDiv(panel_client.right, width_, std::max(1, client_size.first)),
@@ -319,6 +322,7 @@ bool Renderer::draw(SharedFrame& frame, std::pair<int, int> cursor_position, boo
         const float client_scale_x = float(client_size.first) / width_, client_scale_y = float(client_size.second) / height_;
         displayed_panel_ = {rect.left * client_scale_x, rect.top * client_scale_y,
                             rect.right * client_scale_x, rect.bottom * client_scale_y, int(frame_width_), int(frame_height_)};
+        positioned_panel_rect_ = {left - inset_x, top - inset_y, left - inset_x + target_width, top - inset_y + target_height};
         ++stats_.draw_calls;
         return true;
     } catch (const std::exception& error) { last_error_ = error.what(); return false; }

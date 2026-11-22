@@ -267,7 +267,7 @@ void SettingsStore::set_geometry(const SavedPanelGeometry& geometry) {
         {"left", geometry.left}, {"top", geometry.top}, {"width", geometry.width}, {"height", geometry.height}};
 }
 
-// 跨分辨率恢复时按较小轴比例缩放窗口，再确保标题栏和最小尺寸仍在当前客户区内。
+// 跨分辨率恢复时按较小轴比例缩放窗口，外框位置由合成器按实际画面约束。
 std::optional<SavedPanelGeometry> SettingsStore::restored_geometry(int client_width, int client_height) const {
     std::lock_guard lock(mutex_);
     if (!value_["window"].value("rememberGeometry", true) || !value_["window"].contains("geometry") || client_width < 1 || client_height < 1) return {};
@@ -278,8 +278,8 @@ std::optional<SavedPanelGeometry> SettingsStore::restored_geometry(int client_wi
     const int minimum_width = std::min(min_panel_width, client_width), minimum_height = std::min(min_panel_height, client_height);
     const int width = std::clamp(int(std::lround(saved.value("width", panel_width) * scale)), minimum_width, client_width);
     const int height = std::clamp(int(std::lround(saved.value("height", panel_height) * scale)), minimum_height, client_height);
-    const int left = std::clamp(int(std::lround(saved.value("left", 0) * double(client_width) / old_width)), 0, std::max(0, client_width - width));
-    const int top = std::clamp(int(std::lround(saved.value("top", 0) * double(client_height) / old_height)), 0, std::max(0, client_height - height));
+    const int left = int(std::lround(saved.value("left", 0) * double(client_width) / old_width));
+    const int top = int(std::lround(saved.value("top", 0) * double(client_height) / old_height));
     return SavedPanelGeometry{client_width, client_height, left, top, width, height};
 }
 

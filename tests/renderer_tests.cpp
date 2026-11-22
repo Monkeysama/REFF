@@ -126,6 +126,17 @@ int main(int argc, char** argv) {
             if(mode!=2 && (count<100*scale*scale || !dark || !bright || minx!=40*scale || miny>50*scale+1 || maxy<72*scale))
                 throw std::runtime_error("Cursor shape, hotspot or outline check failed");
         }
+        // 外框占满客户区高度时，拟合后的网页仍可在上下留白内移动。
+        for (const LONG requested_top : {-120L, 0L, 64L, 120L}) {
+            if (!renderer.draw(frame,{84,112},false,{640,480},{24,requested_top},{24,requested_top,504,requested_top+480}))
+                throw std::runtime_error(renderer.last_error());
+            const auto expected_top=std::clamp(requested_top+80,0L,160L);
+            const auto& panel=renderer.displayed_panel();
+            int x{}, y{};
+            if (panel.top!=expected_top || panel.bottom!=expected_top+320 ||
+                !panel.hit_test(84,expected_top+56,x,y) || x!=120 || y!=112)
+                throw std::runtime_error("Full-height panel must move within its visible vertical space and preserve hit testing");
+        }
         renderer.reset(); DestroyWindow(window); return 0;
     } catch (const std::exception& error) { if(window) DestroyWindow(window); std::cerr<<error.what()<<'\n'; return 1; }
 }

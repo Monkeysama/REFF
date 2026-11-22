@@ -482,7 +482,6 @@ void update_panel_resize(int x, int y, PanelResizeController::InputMode mode) {
         std::lock_guard geometry_lock(runtime->panel_geometry_mutex);
         runtime->panel_origin_left=next.left; runtime->panel_origin_top=next.top;
         runtime->panel_display_width=next.right-next.left; runtime->panel_display_height=next.bottom-next.top;
-        runtime->right=next.right; runtime->bottom=next.bottom;
     }
     resize_log("input mode=" + std::to_string(static_cast<int>(mode)) + " x=" + std::to_string(x) + " y=" + std::to_string(y) +
                " rect=" + std::to_string(next.left) + "," + std::to_string(next.top) + "," + std::to_string(next.right) + "," + std::to_string(next.bottom), true);
@@ -494,7 +493,7 @@ void submit_resize_pointer(int x, int y, PanelResizeController::InputMode mode) 
     update_panel_resize(x, y, mode);
 }
 
-// 根据当前虚拟光标更新面板位置；Present 下一帧会再次裁剪到游戏客户区边界。
+// 根据当前虚拟光标更新请求位置；Present 用实际画面大小限制拖动范围。
 void update_panel_drag(int x, int y) {
     if (!runtime->panel_dragging) return;
     std::lock_guard geometry_lock(runtime->panel_geometry_mutex);
@@ -1157,20 +1156,11 @@ void on_present() {
         geometry_initialized = true;
     } else {
         const auto requested_origin = std::pair{runtime->panel_origin_left.load(), runtime->panel_origin_top.load()};
-        // 拖动边缘时尺寸可能瞬间超过客户区；先限制到客户区，避免 DX12 viewport/scissor 越界导致整块面板消失。
+        // 客户区限制外框尺寸，位置留到合成器完成网页拟合后再限制。
         const int pw=std::clamp(runtime->panel_display_width.load(), 1, std::max(1, client_size.first));
         const int ph=std::clamp(runtime->panel_display_height.load(), 1, std::max(1, client_size.second));
         rect={requested_origin.first, requested_origin.second, requested_origin.first+pw, requested_origin.second+ph};
-        rect.left=std::clamp<LONG>(rect.left,0,std::max<LONG>(0,client_size.first-pw)); rect.top=std::clamp<LONG>(rect.top,0,std::max<LONG>(0,client_size.second-ph)); rect.right=rect.left+pw; rect.bottom=rect.top+ph;
     }
-    // 拖动过程中保留输入线程写入的请求位置；松开后下一帧再把越界位置归一化。
-    if (!runtime->panel_dragging) {
-        runtime->panel_origin_left = rect.left; runtime->panel_origin_top = rect.top;
-    }
-    const bool geometry_changed = runtime->left != rect.left || runtime->top != rect.top ||
-        runtime->right != rect.right || runtime->bottom != rect.bottom;
-    runtime->left = rect.left; runtime->top = rect.top; runtime->right = rect.right; runtime->bottom = rect.bottom;
-    if (geometry_changed) request_cursor_sync();
     }
     // 首次恢复保存几何后，显示矩形已经变化但浏览器仍可能处于默认 viewport；
     // 通过窗口线程消息提交一次强制同步，确保页面首帧按实际尺寸布局。
@@ -1205,6 +1195,9 @@ void on_present() {
         if (drawn) {
             std::lock_guard geometry_lock(runtime->panel_geometry_mutex);
             const auto& panel = runtime->renderer.displayed_panel();
+            const auto outer = panel.width ? runtime->renderer.positioned_panel_rect() : RECT{};
+            runtime->left = outer.left; runtime->top = outer.top;
+            runtime->right = outer.right; runtime->bottom = outer.bottom;
             if (panel != runtime->displayed_panel) {
                 runtime->displayed_panel = panel;
                 runtime->pointer_remap_requested = true;

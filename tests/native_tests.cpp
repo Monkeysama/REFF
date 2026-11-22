@@ -341,6 +341,10 @@ int main() {
             require(loaded.snapshot()["hotkey"]["key"]==VK_F8, "existing saved F8 binding retained after upgrade");
             require(restored && restored->left == 640 && restored->top == 293 && restored->width == 1280 && restored->height == 853,
                 "settings geometry scaled");
+            settings.set_geometry({3840,2160,348,-72,3492,2160});
+            const auto fitted = settings.restored_geometry(3840,2160);
+            require(fitted && fitted->top == -72 && fitted->height == 2160,
+                "restoring must preserve the position of a fitted full-height panel");
             require(loaded.snapshot()["layout"]["pluginPadding"]==0 && loaded.snapshot()["navigation"]["lastPluginId"]=="example.vue", "layout and last plugin persisted");
             require(loaded.plugin_layout("example.react")["padding"]==48, "plugin override persisted");
             require(loaded.snapshot()["layout"]["sidebarCollapsed"]==true && loaded.snapshot()["layout"]["sidebarCompact"]==false && loaded.snapshot()["layout"]["headerCompact"]==true, "independent chrome preferences persisted");
